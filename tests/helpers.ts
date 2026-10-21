@@ -1,0 +1,30 @@
+import Database from 'better-sqlite3';
+import { up as migration001, version as v001 } from '../src/db/migrations/001_initial.js';
+
+/** Создаёт временную in-memory SQLite базу для тестов */
+export function createTestDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+
+  // Создаём таблицу миграций
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version   INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Применяем миграцию
+  migration001(db);
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(v001);
+
+  return db;
+}
+
+/** Патчит модуль connection.ts для использования тестовой БД */
+export function patchDbConnection(db: Database.Database): void {
+  // Мы используем прямые вызовы функций репозиториев с тестовой БД,
+  // поэтому просто экспортируем хелпер для создания тестовой БД.
+  void db;
+}
