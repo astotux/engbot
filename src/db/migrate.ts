@@ -2,9 +2,14 @@ import 'dotenv/config';
 import { getDb, closeDb } from './connection.js';
 import { up as migration001, version as v001 } from './migrations/001_initial.js';
 import { up as migration002, version as v002 } from './migrations/002_lesson_steps.js';
+import { up as migration003, version as v003 } from './migrations/003_vocabulary.js';
 import { logger } from '../utils/logger.js';
 
-const migrations = [{ version: v001, up: migration001 }, { version: v002, up: migration002 }];
+const migrations = [
+  { version: v001, up: migration001 },
+  { version: v002, up: migration002 },
+  { version: v003, up: migration003 },
+];
 
 export function runMigrations(): void {
   const db = getDb();

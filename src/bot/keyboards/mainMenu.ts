@@ -19,6 +19,7 @@ export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
     kb.text('📖 Мой урок', 'my_lesson').text('📊 Мой прогресс', 'my_progress').row();
   }
 
+  kb.text('⬆️ Словарный запас', 'vocab:menu').row();
   kb.text('🆘 Поддержка', 'support');
 
   return kb;
