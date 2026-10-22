@@ -1,7 +1,10 @@
 /**
- * Вспомогательные функции для отправки сообщений с удалением предыдущего.
- * Каждый раз, когда бот отправляет новое «экранное» сообщение,
- * предыдущее сообщение бота удаляется, чтобы чат выглядел чище.
+ * Вспомогательные функции отправки сообщений.
+ *
+ * editScreen  — для навигационных переходов: редактирует текущее сообщение.
+ *               Если редактировать нельзя — фоллбек на sendScreen.
+ * sendScreen  — для уроков и тестов: удаляет предыдущее, отправляет новое.
+ * sendEphemeral — для подсказок/ошибок в середине теста.
  */
 import type { BotContext } from './context.js';
 import type { InlineKeyboard } from 'grammy';
@@ -12,9 +15,46 @@ type SendOptions = {
   reply_markup?: InlineKeyboard | { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> };
 };
 
+// ─── Навигационный переход (edit) ─────────────────────────────────────────────
+
 /**
- * Удаляет предыдущее «экранное» сообщение бота (если сохранено в сессии),
- * отправляет новое и сохраняет его ID в сессии.
+ * Редактирует текущее сообщение бота (для навигационных переходов).
+ * Если callbackQuery есть — использует editMessageText прямо через него.
+ * Если нет (команда / нет сохранённого ID) — падает обратно на sendScreen.
+ */
+export async function editScreen(
+  ctx: BotContext,
+  text: string,
+  options: SendOptions = {},
+): Promise<void> {
+  // Пробуем отредактировать через callback query (самый надёжный способ)
+  if (ctx.callbackQuery?.message) {
+    try {
+      await ctx.editMessageText(text, options as Parameters<typeof ctx.editMessageText>[1]);
+      // Сохраняем ID отредактированного сообщения
+      ctx.session.lastBotMessageId = ctx.callbackQuery.message.message_id;
+      return;
+    } catch (err: unknown) {
+      // Telegram возвращает ошибку если текст не изменился — это нормально
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('message is not modified')) {
+        ctx.session.lastBotMessageId = ctx.callbackQuery.message.message_id;
+        return;
+      }
+      // Любая другая ошибка — логируем и фоллбек
+      logger.debug({ err }, 'editMessageText не удался, фоллбек на sendScreen');
+    }
+  }
+
+  // Фоллбек: если нет callbackQuery (вызов из команды) — обычный sendScreen
+  await sendScreen(ctx, text, options);
+}
+
+// ─── Новое сообщение (для уроков и тестов) ───────────────────────────────────
+
+/**
+ * Удаляет предыдущее сообщение бота и отправляет новое.
+ * Используй для шагов урока и вопросов теста.
  */
 export async function sendScreen(
   ctx: BotContext,
@@ -27,8 +67,8 @@ export async function sendScreen(
 }
 
 /**
- * Удаляет предыдущее сообщение бота (не сохраняет новое — для временных подсказок).
- * Используй для коротких уведомлений (ошибки, подсказки), которые не нужно удалять следующим шагом.
+ * Отправляет сообщение не удаляя предыдущее (для фидбека внутри теста).
+ * Сохраняет ID, чтобы следующий sendScreen/editScreen мог его убрать.
  */
 export async function sendEphemeral(
   ctx: BotContext,
@@ -36,13 +76,11 @@ export async function sendEphemeral(
   options: SendOptions = {},
 ): Promise<void> {
   const sent = await ctx.reply(text, options as Parameters<typeof ctx.reply>[1]);
-  // Сохраняем ID этого эфемерного сообщения, чтобы следующий sendScreen его удалил
   ctx.session.lastBotMessageId = sent.message_id;
 }
 
-/**
- * Тихо удаляет предыдущее «экранное» сообщение бота из сессии.
- */
+// ─── Удаление ─────────────────────────────────────────────────────────────────
+
 export async function deletePrevious(ctx: BotContext): Promise<void> {
   const msgId = ctx.session.lastBotMessageId;
   if (!msgId || !ctx.chat?.id) return;
@@ -50,13 +88,12 @@ export async function deletePrevious(ctx: BotContext): Promise<void> {
   try {
     await ctx.api.deleteMessage(ctx.chat.id, msgId);
   } catch {
-    // Сообщение уже удалено или слишком старое — игнорируем
+    // Уже удалено или слишком старое — игнорируем
   }
 }
 
-/**
- * Отправляет документ и сохраняет его ID как последнее сообщение бота.
- */
+// ─── Документы ───────────────────────────────────────────────────────────────
+
 export async function sendDocumentScreen(
   ctx: BotContext,
   document: Parameters<typeof ctx.replyWithDocument>[0],
@@ -67,9 +104,6 @@ export async function sendDocumentScreen(
   ctx.session.lastBotMessageId = sent.message_id;
 }
 
-/**
- * Логирует и глушит ошибки удаления (для безопасного вызова вне sendScreen).
- */
 export function silentDeleteMessage(ctx: BotContext, messageId: number): void {
   if (!ctx.chat?.id) return;
   ctx.api.deleteMessage(ctx.chat.id, messageId).catch((err) => {

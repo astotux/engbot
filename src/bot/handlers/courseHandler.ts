@@ -3,7 +3,7 @@ import { getCourseAccess, startCourse } from '../../db/repositories/courseAccess
 import { mainMenuKeyboard, courseInfoKeyboard } from '../keyboards/mainMenu.js';
 import { initiatePurchase } from '../../services/purchaseService.js';
 import { scheduleAllLessons } from '../../services/lessonService.js';
-import { sendScreen } from '../sendHelper.js';
+import { editScreen } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
 
@@ -42,7 +42,7 @@ export async function handleCourseInfo(ctx: BotContext): Promise<void> {
 
   if (access && access.status !== 'revoked') {
     if (access.status === 'active' || access.status === 'completed') {
-      await sendScreen(
+      await editScreen(
         ctx,
         '✅ У тебя уже есть доступ к курсу!\n\nВыбери нужный раздел:',
         { reply_markup: mainMenuKeyboard(true) },
@@ -50,7 +50,7 @@ export async function handleCourseInfo(ctx: BotContext): Promise<void> {
       return;
     }
     if (access.status === 'pending') {
-      await sendScreen(
+      await editScreen(
         ctx,
         '⏳ Доступ к курсу обрабатывается. Как только оплата подтвердится, ты получишь уведомление.',
         { reply_markup: mainMenuKeyboard(false) },
@@ -59,7 +59,7 @@ export async function handleCourseInfo(ctx: BotContext): Promise<void> {
     }
   }
 
-  await sendScreen(ctx, COURSE_DESCRIPTION, {
+  await editScreen(ctx, COURSE_DESCRIPTION, {
     parse_mode: 'HTML',
     reply_markup: courseInfoKeyboard(),
   });
@@ -76,7 +76,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
 
   const access = getCourseAccess(telegramId);
   if (access && (access.status === 'active' || access.status === 'completed')) {
-    await sendScreen(
+    await editScreen(
       ctx,
       '✅ У тебя уже есть доступ к курсу!\n\nВыбери нужный раздел:',
       { reply_markup: mainMenuKeyboard(true) },
@@ -85,7 +85,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
   }
 
   if (!config.yookassa.enabled) {
-    await sendScreen(
+    await editScreen(
       ctx,
       '⚠️ Оплата временно недоступна. Обратись в поддержку.',
       { reply_markup: mainMenuKeyboard(false) },
@@ -93,14 +93,14 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
     return;
   }
 
-  await sendScreen(ctx, '⏳ Создаю ссылку на оплату...');
+  await editScreen(ctx, '⏳ Создаю ссылку на оплату...');
 
   try {
     const { paymentUrl, paymentId, orderId } = await initiatePurchase(telegramId);
     ctx.session.lastPaymentId = paymentId;
     ctx.session.lastOrderId = orderId;
 
-    await sendScreen(
+    await editScreen(
       ctx,
       `💳 <b>Оплата курса «Английский за 30 дней»</b>\n\n` +
         `Сумма: <b>${config.coursePriceRub} ₽</b>\n\n` +
@@ -119,7 +119,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
     logger.info({ telegramId, paymentId }, 'Ссылка на оплату отправлена');
   } catch (err) {
     logger.error({ err, telegramId }, 'Ошибка создания платежа');
-    await sendScreen(
+    await editScreen(
       ctx,
       '❌ Не удалось создать платёж. Попробуй позже или обратись в поддержку.',
       { reply_markup: mainMenuKeyboard(false) },
@@ -135,7 +135,7 @@ export async function handleStartCourse(ctx: BotContext): Promise<void> {
 
   const access = getCourseAccess(telegramId);
   if (!access || access.status !== 'pending') {
-    await sendScreen(
+    await editScreen(
       ctx,
       'Курс уже начат или недоступен.',
       { reply_markup: mainMenuKeyboard(access?.status === 'active' || access?.status === 'completed') },
@@ -146,7 +146,7 @@ export async function handleStartCourse(ctx: BotContext): Promise<void> {
   startCourse(telegramId);
   scheduleAllLessons(telegramId);
 
-  await sendScreen(
+  await editScreen(
     ctx,
     `🚀 <b>Обучение началось!</b>\n\n` +
       `Каждый день в ${String(config.lessonSendHour).padStart(2, '0')}:${String(config.lessonSendMinute).padStart(2, '0')} (МСК) ты будешь получать новый урок.\n\n` +

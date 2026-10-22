@@ -1,12 +1,20 @@
 import type { BotContext } from '../context.js';
 import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
-import { sendScreen } from '../sendHelper.js';
+import { sendScreen, editScreen } from '../sendHelper.js';
 import { setRemindersEnabled } from '../../db/repositories/users.js';
 
 const HELP_TEXT = `🆘 <b>Помощь</b>
 
-Используй кнопки меню для навигации.\n\nДоступные команды (только для продвинутых):\n/start — начать или перезапустить\n/menu — главное меню\n/lesson — текущий урок\n/progress — мой прогресс\n/cancel — отменить текущее действие`;
+Используй кнопки меню для навигации.
+
+<b>Команды:</b>
+/start — перезапустить бота
+/menu — главное меню
+/lesson — текущий урок
+/progress — мой прогресс
+/vocab — словарный запас
+/cancel — отменить текущее действие`;
 
 const SUPPORT_TEXT = `🆘 <b>Поддержка</b>
 
@@ -22,6 +30,7 @@ function hasCourseAccess(telegramId: number): boolean {
 export async function handleMenu(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   const hasCourse = telegramId ? hasCourseAccess(telegramId) : false;
+  // /menu — вызов командой, нет callbackQuery → всегда sendScreen
   await sendScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
     reply_markup: mainMenuKeyboard(hasCourse),
   });
@@ -39,7 +48,7 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
 export async function handleSupport(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   const hasCourse = telegramId ? hasCourseAccess(telegramId) : false;
-  await sendScreen(ctx, SUPPORT_TEXT, {
+  await editScreen(ctx, SUPPORT_TEXT, {
     parse_mode: 'HTML',
     reply_markup: mainMenuKeyboard(hasCourse),
   });
@@ -47,9 +56,10 @@ export async function handleSupport(ctx: BotContext): Promise<void> {
 
 export async function handleCancel(ctx: BotContext): Promise<void> {
   ctx.session.awaitingStep = undefined;
+  ctx.session.vocabAwaitingAnswer = undefined;
   const telegramId = ctx.from?.id;
   const hasCourse = telegramId ? hasCourseAccess(telegramId) : false;
-  await sendScreen(ctx, '❌ Действие отменено.\n\nВыбери нужный раздел:', {
+  await editScreen(ctx, '❌ Действие отменено.\n\nВыбери нужный раздел:', {
     reply_markup: mainMenuKeyboard(hasCourse),
   });
 }
@@ -60,7 +70,7 @@ export async function handleDisableReminders(ctx: BotContext): Promise<void> {
   setRemindersEnabled(telegramId, false);
   await ctx.answerCallbackQuery('Напоминания отключены');
   const hasCourse = hasCourseAccess(telegramId);
-  await sendScreen(ctx, '🔕 Напоминания отключены.\n\nВыбери нужный раздел:', {
+  await editScreen(ctx, '🔕 Напоминания отключены.\n\nВыбери нужный раздел:', {
     reply_markup: mainMenuKeyboard(hasCourse),
   });
 }

@@ -40,7 +40,7 @@ import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse } from '../db/repositories/courseAccess.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 import { mainMenuKeyboard } from './keyboards/mainMenu.js';
-import { sendScreen } from './sendHelper.js';
+import { sendScreen, editScreen } from './sendHelper.js';
 
 export function createBot(): Bot<BotContext> {
   const bot = new Bot<BotContext>(config.botToken);
@@ -79,7 +79,7 @@ export function createBot(): Bot<BotContext> {
       const access = getCourseAccess(telegramId);
       return !!access && (access.status === 'active' || access.status === 'completed');
     })();
-    await sendScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
+    await editScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
       reply_markup: mainMenuKeyboard(hasCourse),
     });
   });
@@ -103,7 +103,7 @@ export function createBot(): Bot<BotContext> {
     await ctx.answerCallbackQuery();
     const { InlineKeyboard } = await import('grammy');
     const kb = new InlineKeyboard().text('🏠 На главную', 'main_menu');
-    await sendScreen(
+    await editScreen(
       ctx,
       `📚 <b>Программа:</b>\n\nДни 1–7: Основы, to be, числа\nДни 8–14: Present Simple\nДни 15–21: Бытовые ситуации\nДни 22–30: Повторение и финал`,
       { parse_mode: 'HTML', reply_markup: kb },
@@ -114,13 +114,13 @@ export function createBot(): Bot<BotContext> {
     const id = ctx.from?.id; if (!id) return;
     await ctx.answerCallbackQuery();
     pauseCourse(id, true);
-    await sendScreen(ctx, '⏸ Обучение приостановлено.', { reply_markup: mainMenuKeyboard(true) });
+    await editScreen(ctx, '⏸ Обучение приостановлено.', { reply_markup: mainMenuKeyboard(true) });
   });
   bot.callbackQuery('resume_course', async (ctx) => {
     const id = ctx.from?.id; if (!id) return;
     await ctx.answerCallbackQuery();
     pauseCourse(id, false);
-    await sendScreen(ctx, '▶️ Обучение возобновлено! Открой урок ниже.', { reply_markup: mainMenuKeyboard(true) });
+    await editScreen(ctx, '▶️ Обучение возобновлено! Открой урок ниже.', { reply_markup: mainMenuKeyboard(true) });
   });
 
   bot.callbackQuery('disable_reminders', handleDisableReminders);

@@ -1,14 +1,13 @@
 import { InlineKeyboard } from 'grammy';
 
 /**
- * Главное меню — inline-кнопки.
- * @param hasCourse true, если у пользователя активный/завершённый доступ к курсу
+ * Главное меню.
+ * @param hasCourse true — у пользователя активный/завершённый доступ к курсу
  */
 export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
   const kb = new InlineKeyboard();
 
   if (!hasCourse) {
-    // Только для тех, у кого нет купленного курса
     kb.text('🎁 Бесплатный чек-лист', 'show_checklist').row();
     kb.text('💳 Купить курс за 500 ₽', 'buy_course').row();
   }
@@ -25,14 +24,9 @@ export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
   return kb;
 }
 
-/** Кнопка «🏠 На главную» — добавляется к любому экрану */
+/** Кнопка «🏠 На главную» */
 export function backToMainKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text('🏠 На главную', 'main_menu');
-}
-
-/** Кнопка «На главную» + дополнительная кнопка (если нужна) */
-export function withBackToMain(kb: InlineKeyboard): InlineKeyboard {
-  return kb.row().text('🏠 На главную', 'main_menu');
 }
 
 export function courseInfoKeyboard(): InlineKeyboard {

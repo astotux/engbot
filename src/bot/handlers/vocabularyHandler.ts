@@ -1,5 +1,8 @@
 /**
  * Хендлеры раздела «Словарный запас».
+ *
+ * editScreen  — навигационные переходы (меню, настройки, статистика, ошибки-состояния)
+ * sendScreen  — новый контент: изучение слов, вопросы теста, итоги
  */
 import type { BotContext } from '../context.js';
 import {
@@ -33,8 +36,10 @@ import {
   settingsKeyboard,
   backToVocabMenuKeyboard,
 } from '../keyboards/vocabularyKeyboards.js';
-import { sendScreen, sendEphemeral } from '../sendHelper.js';
+import { sendScreen, sendEphemeral, editScreen } from '../sendHelper.js';
 import type { SessionSummary, VocabQuestion } from '../../services/vocabularyService.js';
+
+void getAllActiveWords; // импортируется для будущего использования
 
 // ─── Главное меню словаря ─────────────────────────────────────────────────────
 
@@ -46,9 +51,8 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
 
   const totalWords = countActiveWords();
   const seenCount = getSeenWordIds(telegramId).length;
-  void getAllActiveWords; // импортируется для использования в sendQuestion через getWordById
 
-  await sendScreen(
+  await editScreen(
     ctx,
     `📖 <b>Словарный запас</b>\n\n` +
     `Слов в базе: ${totalWords}\n` +
@@ -69,7 +73,7 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
   const { words } = startStudySession(telegramId);
 
   if (words.length === 0) {
-    await sendScreen(
+    await editScreen(
       ctx,
       '📭 Все слова уже изучены! Попробуй проверить знания.',
       { reply_markup: vocabMenuKeyboard() },
@@ -77,7 +81,6 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // Отправляем слова последовательно — формируем один длинный текст
   let text = `📚 <b>Изучаем ${words.length} слов</b>\n\n`;
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
@@ -90,6 +93,7 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
   }
   text += '✅ Ознакомься со словами и нажми кнопку ниже.';
 
+  // Изучение — новый контент, sendScreen
   await sendScreen(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: afterStudyKeyboard(),
@@ -107,7 +111,7 @@ export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 're
   if (sessionType === 'review_errors') {
     const errorCount = countErrorWords(telegramId);
     if (errorCount === 0) {
-      await sendScreen(
+      await editScreen(
         ctx,
         '🎉 Отличная работа! У тебя нет ошибок для повторения.\n\nМожешь изучить новые слова или пройти обычный тест.',
         { reply_markup: vocabMenuKeyboard() },
@@ -117,7 +121,7 @@ export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 're
   } else {
     const seenCount = getSeenWordIds(telegramId).length;
     if (seenCount === 0) {
-      await sendScreen(
+      await editScreen(
         ctx,
         '📚 Ты ещё не изучал(а) слова. Сначала познакомься с первыми 10 словами!',
         { reply_markup: vocabMenuKeyboard() },
@@ -129,7 +133,7 @@ export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 're
   const result = startQuizSession(telegramId, sessionType);
 
   if ('error' in result) {
-    await sendScreen(
+    await editScreen(
       ctx,
       '📭 Нет слов для проверки. Сначала изучи слова!',
       { reply_markup: vocabMenuKeyboard() },
@@ -139,21 +143,20 @@ export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 're
 
   const { session, firstQuestion, totalQuestions } = result;
 
-  // Сохраняем активную сессию в контексте
   ctx.session.vocabSessionId = session.id;
   ctx.session.vocabAwaitingAnswer = undefined;
 
+  // Первое сообщение теста — новый контент (sendScreen)
   await sendScreen(
     ctx,
-    `🧠 <b>${sessionType === 'review_errors' ? 'Повторение ошибок' : 'Проверка знаний'}</b>\n\n` +
-    `Вопросов: ${totalQuestions}`,
+    `🧠 <b>${sessionType === 'review_errors' ? 'Повторение ошибок' : 'Проверка знаний'}</b>\n\nВопросов: ${totalQuestions}`,
     { parse_mode: 'HTML' },
   );
 
   await sendQuestion(ctx, firstQuestion, 1, totalQuestions);
 }
 
-// ─── Отправка вопроса ────────────────────────────────────────────────────────
+// ─── Отправка вопроса ─────────────────────────────────────────────────────────
 
 async function sendQuestion(
   ctx: BotContext,
@@ -174,7 +177,6 @@ async function sendQuestion(
 
   if (question.question_type === 'written') {
     text += `\n\n<i>Введи перевод текстом:</i>`;
-    // Сигнализируем, что ждём текстовый ответ
     ctx.session.vocabAwaitingAnswer = {
       sessionId: question.session_id,
       questionId: question.id,
@@ -277,19 +279,17 @@ async function processAndRespond(
 
   const { isCorrect, correctAnswer, word, nextQuestion, sessionDone, summary } = result;
 
-  // Текст результата
   const feedbackText = isCorrect
     ? `✅ <b>Правильно!</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`
     : `❌ <b>Неверно.</b>\nПравильный ответ: <b>${correctAnswer}</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`;
 
   if (sessionDone && summary) {
-    // Показываем фидбек отдельно, потом итоги
     await sendEphemeral(ctx, feedbackText, { parse_mode: 'HTML' });
     await sendSummary(ctx, summary);
     ctx.session.vocabSessionId = undefined;
     ctx.session.vocabAwaitingAnswer = undefined;
   } else if (nextQuestion) {
-    // Объединяем фидбек и кнопку «Следующий» в одно сообщение
+    // Фидбек + кнопка «Следующий» — одно сообщение (sendScreen, чтобы убрать вопрос)
     await sendScreen(ctx, feedbackText, {
       parse_mode: 'HTML',
       reply_markup: nextQuestionKeyboard(sessionId, questionId),
@@ -312,13 +312,12 @@ export async function handleNextQuestion(
   if (!session || session.telegram_id !== telegramId) return;
 
   if (session.status !== 'active') {
-    await sendScreen(ctx, '⚠️ Тест уже завершён.', { reply_markup: vocabMenuKeyboard() });
+    await editScreen(ctx, '⚠️ Тест уже завершён.', { reply_markup: vocabMenuKeyboard() });
     return;
   }
 
   const nextQ = getCurrentQuestion(sessionId);
   if (!nextQ) {
-    // Все отвечены
     const summary = buildSummary(sessionId);
     await sendSummary(ctx, summary);
     return;
@@ -342,7 +341,7 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
   if (!session || session.telegram_id !== telegramId) return;
 
   if (session.status !== 'active') {
-    await sendScreen(ctx, '⚠️ Тест уже завершён.', { reply_markup: vocabMenuKeyboard() });
+    await editScreen(ctx, '⚠️ Тест уже завершён.', { reply_markup: vocabMenuKeyboard() });
     return;
   }
 
@@ -350,11 +349,10 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
   const answeredCount = allQuestions.filter((q) => q.status !== 'pending').length;
 
   if (answeredCount === 0) {
-    // Ни одного ответа — спрашиваем подтверждение через inline
     const { InlineKeyboard } = await import('grammy');
     const confirmKb = new InlineKeyboard()
-      .text('✅ Да, завершить', `vocab:finish_confirm:${sessionId}`)
-      .text('❌ Отмена', `vocab:next:${sessionId}:0`);
+      .text('✅ Да, завершить', `vocab:finish_confirm:${sessionId}`).row()
+      .text('◀️ Продолжить тест', `vocab:next:${sessionId}:0`);
     await sendScreen(ctx, '⚠️ Ты ещё не ответил(а) ни на один вопрос. Завершить тест?', {
       reply_markup: confirmKb,
     });
@@ -363,7 +361,7 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
 
   const summary = finishSessionEarly(sessionId);
   if (!summary) {
-    await sendScreen(ctx, '⚠️ Не удалось завершить тест.', { reply_markup: vocabMenuKeyboard() });
+    await editScreen(ctx, '⚠️ Не удалось завершить тест.', { reply_markup: vocabMenuKeyboard() });
     return;
   }
 
@@ -382,7 +380,7 @@ export async function handleFinishConfirm(ctx: BotContext, sessionId: number): P
   ctx.session.vocabSessionId = undefined;
 
   if (!summary) {
-    await sendScreen(ctx, '⚠️ Не удалось завершить тест.', { reply_markup: vocabMenuKeyboard() });
+    await editScreen(ctx, '⚠️ Не удалось завершить тест.', { reply_markup: vocabMenuKeyboard() });
     return;
   }
 
@@ -399,7 +397,7 @@ export async function handleRestartSession(ctx: BotContext, sessionId: number): 
   const result = restartSession(telegramId, sessionId);
 
   if ('error' in result) {
-    await sendScreen(ctx, '⚠️ Не удалось повторить тест.', { reply_markup: vocabMenuKeyboard() });
+    await editScreen(ctx, '⚠️ Не удалось повторить тест.', { reply_markup: vocabMenuKeyboard() });
     return;
   }
 
@@ -429,7 +427,6 @@ async function sendSummary(ctx: BotContext, summary: SessionSummary): Promise<vo
     text += `\n🎯 Точность: <b>${accuracy}%</b>\n`;
   }
 
-  // Ошибки
   const errors = questions.filter((q) => q.question.result === 'wrong');
   if (errors.length > 0) {
     text += `\n<b>Ошибки:</b>\n`;
@@ -441,6 +438,7 @@ async function sendSummary(ctx: BotContext, summary: SessionSummary): Promise<vo
     }
   }
 
+  // Итоги — новый контент (sendScreen)
   await sendScreen(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: summaryKeyboard(summary.sessionId, errors.length > 0),
@@ -481,7 +479,7 @@ export async function handleVocabStats(ctx: BotContext): Promise<void> {
     }
   }
 
-  await sendScreen(ctx, text, {
+  await editScreen(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: backToVocabMenuKeyboard(),
   });
@@ -512,7 +510,7 @@ export async function handleVocabSettings(ctx: BotContext): Promise<void> {
     `📝 Способ ответа: ${modeText[settings.answer_mode]}\n\n` +
     `Выбери нужные параметры:`;
 
-  await sendScreen(ctx, text, {
+  await editScreen(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: settingsKeyboard(settings.direction, settings.answer_mode),
   });
@@ -524,8 +522,7 @@ export async function handleSetDirection(
 ): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
-  await ctx.answerCallbackQuery('Сохранено');
-
+  await ctx.answerCallbackQuery('Сохранено ✓');
   updateUserSettings(telegramId, { direction });
   await handleVocabSettings(ctx);
 }
@@ -536,8 +533,7 @@ export async function handleSetMode(
 ): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
-  await ctx.answerCallbackQuery('Сохранено');
-
+  await ctx.answerCallbackQuery('Сохранено ✓');
   updateUserSettings(telegramId, { answer_mode: mode });
   await handleVocabSettings(ctx);
 }
