@@ -23,6 +23,8 @@ import {
   insertAnswerHistory,
   getUserSettings,
   updateUserSettings,
+  markDemoQuizUsed,
+  isDemoQuizUsed,
   type VocabWord,
   type VocabSession,
   type VocabQuestion,
@@ -476,6 +478,9 @@ export function getUserVocabStats(telegramId: number): UserVocabStats {
 // ─── Экспорт утилит ───────────────────────────────────────────────────────────
 
 export { getUserSettings, updateUserSettings, getSession, getWordById, getAllActiveWords };
+
+// Экспорт функций демо-ограничения
+export { markDemoQuizUsed, isDemoQuizUsed };
 
 // ─── Вспомогательные функции ──────────────────────────────────────────────────
 

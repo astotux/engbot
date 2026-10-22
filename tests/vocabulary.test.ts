@@ -622,3 +622,38 @@ describe('user settings isolation', () => {
     expect(r801.session.telegram_id).toBe(801);
   });
 });
+
+// ── 10. Демо-ограничение ──────────────────────────────────────────────────────
+
+import {
+  markDemoQuizUsed,
+  isDemoQuizUsed,
+} from '../src/db/repositories/vocabulary.js';
+
+describe('demo quiz restriction', () => {
+  it('isDemoQuizUsed возвращает false по умолчанию', () => {
+    seedUser(900);
+    expect(isDemoQuizUsed(900)).toBe(false);
+  });
+
+  it('markDemoQuizUsed помечает демо как использованный', () => {
+    seedUser(900);
+    markDemoQuizUsed(900);
+    expect(isDemoQuizUsed(900)).toBe(true);
+  });
+
+  it('повторный вызов markDemoQuizUsed идемпотентен', () => {
+    seedUser(900);
+    markDemoQuizUsed(900);
+    markDemoQuizUsed(900);
+    expect(isDemoQuizUsed(900)).toBe(true);
+  });
+
+  it('разные пользователи имеют независимые флаги', () => {
+    seedUser(901);
+    seedUser(902);
+    markDemoQuizUsed(901);
+    expect(isDemoQuizUsed(901)).toBe(true);
+    expect(isDemoQuizUsed(902)).toBe(false);
+  });
+});

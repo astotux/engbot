@@ -1,8 +1,13 @@
 /**
  * Хендлеры раздела «Словарный запас».
  *
- * editScreen  — навигационные переходы (меню, настройки, статистика, ошибки-состояния)
- * sendScreen  — новый контент: изучение слов, вопросы теста, итоги
+ * editScreen — навигационные переходы (меню, настройки, статистика)
+ * sendScreen — новый контент: изучение слов, вопросы теста, итоги
+ *
+ * Демо-ограничение для незарегистрированных на курс:
+ *  - «Учить слова» работает всегда (ознакомление)
+ *  - «Проверить знания» и «Повторить ошибки» — только 1 раз, потом предложение купить курс
+ *  - Пользователи с купленным курсом — без ограничений
  */
 import type { BotContext } from '../context.js';
 import {
@@ -17,15 +22,17 @@ import {
   updateUserSettings,
   getSession,
   getWordById,
+  markDemoQuizUsed,
+  isDemoQuizUsed,
 } from '../../services/vocabularyService.js';
 import {
-  getAllActiveWords,
   getSeenWordIds,
   countActiveWords,
   countErrorWords,
   getCurrentQuestion,
   getSessionQuestions,
 } from '../../db/repositories/vocabulary.js';
+import { getCourseAccess } from '../../db/repositories/courseAccess.js';
 import {
   vocabMenuKeyboard,
   afterStudyKeyboard,
@@ -37,9 +44,23 @@ import {
   backToVocabMenuKeyboard,
 } from '../keyboards/vocabularyKeyboards.js';
 import { sendScreen, sendEphemeral, editScreen } from '../sendHelper.js';
+import { InlineKeyboard } from 'grammy';
 import type { SessionSummary, VocabQuestion } from '../../services/vocabularyService.js';
 
-void getAllActiveWords; // импортируется для будущего использования
+// ─── Хелперы ─────────────────────────────────────────────────────────────────
+
+/** Есть ли у пользователя активный/завершённый курс */
+function userHasCourse(telegramId: number): boolean {
+  const access = getCourseAccess(telegramId);
+  return !!access && (access.status === 'active' || access.status === 'completed');
+}
+
+/** Клавиатура «купи курс» */
+function buyCourseKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('💳 Купить курс за 500 ₽', 'buy_course').row()
+    .text('🏠 На главную', 'main_menu');
+}
 
 // ─── Главное меню словаря ─────────────────────────────────────────────────────
 
@@ -51,12 +72,22 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
 
   const totalWords = countActiveWords();
   const seenCount = getSeenWordIds(telegramId).length;
+  const hasCourse = userHasCourse(telegramId);
+  const demoUsed = !hasCourse && isDemoQuizUsed(telegramId);
+
+  let hint = '';
+  if (!hasCourse) {
+    hint = demoUsed
+      ? '\n\n🔒 <i>Полный доступ к тестам — после покупки курса.</i>'
+      : '\n\n🎁 <i>Тест доступен бесплатно один раз. После этого — в подарок с курсом!</i>';
+  }
 
   await editScreen(
     ctx,
     `📖 <b>Словарный запас</b>\n\n` +
     `Слов в базе: ${totalWords}\n` +
-    `Ты изучил(а): ${seenCount} из ${totalWords}\n\n` +
+    `Ты изучил(а): ${seenCount} из ${totalWords}` +
+    hint + '\n\n' +
     `Выбери действие:`,
     { parse_mode: 'HTML', reply_markup: vocabMenuKeyboard() },
   );
@@ -93,7 +124,6 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
   }
   text += '✅ Ознакомься со словами и нажми кнопку ниже.';
 
-  // Изучение — новый контент, sendScreen
   await sendScreen(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: afterStudyKeyboard(),
@@ -102,11 +132,32 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
 
 // ─── Запуск теста ─────────────────────────────────────────────────────────────
 
-export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 'review_errors' = 'quiz'): Promise<void> {
+export async function handleVocabQuiz(
+  ctx: BotContext,
+  sessionType: 'quiz' | 'review_errors' = 'quiz',
+): Promise<void> {
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
 
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
+
+  // ── Демо-ограничение ──────────────────────────────────────────────────────
+  if (!userHasCourse(telegramId)) {
+    if (isDemoQuizUsed(telegramId)) {
+      // Демо уже использован — предлагаем купить курс
+      await editScreen(
+        ctx,
+        `🔒 <b>Словарный запас — подарок к курсу</b>\n\n` +
+        `Ты уже прошёл(а) бесплатный демо-тест!\n\n` +
+        `Полный словарный раздел — более 50 слов, неограниченные тесты, повторение ошибок — входит в курс «Английский за 30 дней».\n\n` +
+        `💳 <b>Стоимость курса: 500 ₽</b>\n\n` +
+        `Купи курс и получи словарный запас в подарок 🎁`,
+        { parse_mode: 'HTML', reply_markup: buyCourseKeyboard() },
+      );
+      return;
+    }
+  }
+  // ── Конец проверки ────────────────────────────────────────────────────────
 
   if (sessionType === 'review_errors') {
     const errorCount = countErrorWords(telegramId);
@@ -146,7 +197,6 @@ export async function handleVocabQuiz(ctx: BotContext, sessionType: 'quiz' | 're
   ctx.session.vocabSessionId = session.id;
   ctx.session.vocabAwaitingAnswer = undefined;
 
-  // Первое сообщение теста — новый контент (sendScreen)
   await sendScreen(
     ctx,
     `🧠 <b>${sessionType === 'review_errors' ? 'Повторение ошибок' : 'Проверка знаний'}</b>\n\nВопросов: ${totalQuestions}`,
@@ -285,11 +335,16 @@ async function processAndRespond(
 
   if (sessionDone && summary) {
     await sendEphemeral(ctx, feedbackText, { parse_mode: 'HTML' });
-    await sendSummary(ctx, summary);
+
+    // Помечаем демо-тест как использованный (только если нет курса)
+    if (!userHasCourse(telegramId)) {
+      markDemoQuizUsed(telegramId);
+    }
+
+    await sendSummary(ctx, summary, !userHasCourse(telegramId));
     ctx.session.vocabSessionId = undefined;
     ctx.session.vocabAwaitingAnswer = undefined;
   } else if (nextQuestion) {
-    // Фидбек + кнопка «Следующий» — одно сообщение (sendScreen, чтобы убрать вопрос)
     await sendScreen(ctx, feedbackText, {
       parse_mode: 'HTML',
       reply_markup: nextQuestionKeyboard(sessionId, questionId),
@@ -319,7 +374,8 @@ export async function handleNextQuestion(
   const nextQ = getCurrentQuestion(sessionId);
   if (!nextQ) {
     const summary = buildSummary(sessionId);
-    await sendSummary(ctx, summary);
+    if (!userHasCourse(telegramId)) markDemoQuizUsed(telegramId);
+    await sendSummary(ctx, summary, !userHasCourse(telegramId));
     return;
   }
 
@@ -349,7 +405,6 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
   const answeredCount = allQuestions.filter((q) => q.status !== 'pending').length;
 
   if (answeredCount === 0) {
-    const { InlineKeyboard } = await import('grammy');
     const confirmKb = new InlineKeyboard()
       .text('✅ Да, завершить', `vocab:finish_confirm:${sessionId}`).row()
       .text('◀️ Продолжить тест', `vocab:next:${sessionId}:0`);
@@ -365,9 +420,12 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
     return;
   }
 
+  // Досрочное завершение тоже считается — расходуем демо
+  if (!userHasCourse(telegramId)) markDemoQuizUsed(telegramId);
+
   ctx.session.vocabAwaitingAnswer = undefined;
   ctx.session.vocabSessionId = undefined;
-  await sendSummary(ctx, summary);
+  await sendSummary(ctx, summary, !userHasCourse(telegramId));
 }
 
 export async function handleFinishConfirm(ctx: BotContext, sessionId: number): Promise<void> {
@@ -384,7 +442,8 @@ export async function handleFinishConfirm(ctx: BotContext, sessionId: number): P
     return;
   }
 
-  await sendSummary(ctx, summary);
+  if (!userHasCourse(telegramId)) markDemoQuizUsed(telegramId);
+  await sendSummary(ctx, summary, !userHasCourse(telegramId));
 }
 
 // ─── Callback: повторить тест ─────────────────────────────────────────────────
@@ -393,6 +452,18 @@ export async function handleRestartSession(ctx: BotContext, sessionId: number): 
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
   await ctx.answerCallbackQuery();
+
+  // Повтор — тоже требует курс если демо уже потрачен
+  if (!userHasCourse(telegramId) && isDemoQuizUsed(telegramId)) {
+    await editScreen(
+      ctx,
+      `🔒 <b>Повторное прохождение — часть курса</b>\n\n` +
+      `Бесплатный демо-тест уже пройден.\n\n` +
+      `Для неограниченных повторений купи курс «Английский за 30 дней» 🎁`,
+      { parse_mode: 'HTML', reply_markup: buyCourseKeyboard() },
+    );
+    return;
+  }
 
   const result = restartSession(telegramId, sessionId);
 
@@ -411,7 +482,11 @@ export async function handleRestartSession(ctx: BotContext, sessionId: number): 
 
 // ─── Страница итогов ──────────────────────────────────────────────────────────
 
-async function sendSummary(ctx: BotContext, summary: SessionSummary): Promise<void> {
+async function sendSummary(
+  ctx: BotContext,
+  summary: SessionSummary,
+  showBuyPromo: boolean,
+): Promise<void> {
   const { totalQuestions, correctCount, wrongCount, skippedCount, accuracy, questions } = summary;
 
   let text =
@@ -438,10 +513,25 @@ async function sendSummary(ctx: BotContext, summary: SessionSummary): Promise<vo
     }
   }
 
-  // Итоги — новый контент (sendScreen)
+  // Промо-блок для незакупивших
+  if (showBuyPromo) {
+    text +=
+      `\n\n🎁 <b>Словарный запас — в подарок с курсом!</b>\n` +
+      `Купи курс «Английский за 30 дней» и получи:\n` +
+      `• Неограниченные тесты\n` +
+      `• Повторение ошибок\n` +
+      `• 50+ слов с примерами\n` +
+      `• Прогресс и статистика\n\n` +
+      `💳 <b>Всего 500 ₽</b>`;
+  }
+
+  const kb = showBuyPromo
+    ? buyCourseKeyboard()
+    : summaryKeyboard(summary.sessionId, errors.length > 0);
+
   await sendScreen(ctx, text, {
     parse_mode: 'HTML',
-    reply_markup: summaryKeyboard(summary.sessionId, errors.length > 0),
+    reply_markup: kb,
   });
 }
 

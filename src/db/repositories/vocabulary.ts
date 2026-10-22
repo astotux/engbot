@@ -66,6 +66,7 @@ export interface VocabUserSettings {
   direction: 'en_to_ru' | 'ru_to_en';
   answer_mode: 'test' | 'written' | 'alternating';
   alt_next: 'test' | 'written';
+  demo_quiz_used: number; // 0 = не использован, 1 = уже прошёл
   updated_at: string;
 }
 
@@ -482,4 +483,18 @@ export function flipAltNext(telegramId: number): void {
   const s = getUserSettings(telegramId);
   const next = s.alt_next === 'test' ? 'written' : 'test';
   updateUserSettings(telegramId, { alt_next: next });
+}
+
+/** Пометить демо-тест как использованный */
+export function markDemoQuizUsed(telegramId: number): void {
+  getUserSettings(telegramId); // гарантируем запись
+  getDb().prepare(`
+    UPDATE vocabulary_user_settings SET demo_quiz_used = 1 WHERE telegram_id = ?
+  `).run(telegramId);
+}
+
+/** Был ли уже использован демо-тест */
+export function isDemoQuizUsed(telegramId: number): boolean {
+  const s = getUserSettings(telegramId);
+  return s.demo_quiz_used === 1;
 }
