@@ -24,6 +24,10 @@ async function main(): Promise<void> {
   await processOutbox(bot);
 
   if (config.webhook.enabled && config.isProduction) {
+    // Инициализируем бота перед обработкой webhook-запросов
+    await bot.init();
+    logger.info({ username: bot.botInfo.username }, 'Бот инициализирован');
+
     // Если SKIP_WEBHOOK_SETUP=true — не вызываем setWebhook (webhook уже зарегистрирован вручную)
     if (process.env['SKIP_WEBHOOK_SETUP'] !== 'true') {
       const webhookUrl = `${config.webhook.baseUrl}/webhook/telegram/${config.webhook.pathSecret}`;
