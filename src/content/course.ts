@@ -96,7 +96,7 @@ export const LESSONS: Lesson[] = [
       {
         type: 'choice',
         question: '🎧 Послушай и выбери: как сказать «Привет» по-дружески?',
-        audioFile: 'assets/audio/day01_q1.mp4',
+        audioFile: 'assets/audio/day01_q1.mp3',
         options: ['Hello', 'Hi', 'Good morning', 'Goodbye'],
         correctIndex: 1,
         hint: 'Это короткое слово из двух букв 😉',
