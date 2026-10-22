@@ -16,6 +16,7 @@ const configSchema = z.object({
   COURSE_TIMEZONE: z.string().default('Europe/Moscow'),
   LESSON_SEND_HOUR: z.coerce.number().int().min(0).max(23).default(10),
   LESSON_SEND_MINUTE: z.coerce.number().int().min(0).max(59).default(0),
+  REQUIRED_CHANNEL: z.string().optional(), // username или id канала, например @mychannel или -1001234567890
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
@@ -58,6 +59,7 @@ export const config = {
   courseTimezone: raw.COURSE_TIMEZONE,
   lessonSendHour: raw.LESSON_SEND_HOUR,
   lessonSendMinute: raw.LESSON_SEND_MINUTE,
+  requiredChannel: raw.REQUIRED_CHANNEL ?? null, // null = проверка отключена
   logLevel: raw.LOG_LEVEL,
   nodeEnv: raw.NODE_ENV,
   isProduction: raw.NODE_ENV === 'production',

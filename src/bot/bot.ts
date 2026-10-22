@@ -3,7 +3,7 @@ import type { BotContext, SessionData } from './context.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
-import { handleStart, sendFreeChecklist } from './handlers/startHandler.js';
+import { handleStart, sendFreeChecklist, handleCheckSubscription } from './handlers/startHandler.js';
 import {
   handleMenu,
   handleHelp,
@@ -99,6 +99,9 @@ export function createBot(): Bot<BotContext> {
     await ctx.answerCallbackQuery();
     await sendFreeChecklist(ctx);
   });
+
+  // Проверка подписки на канал (после нажатия «Я подписался»)
+  bot.callbackQuery('check_subscription', handleCheckSubscription);
   bot.callbackQuery('show_program', async (ctx) => {
     await ctx.answerCallbackQuery();
     const { InlineKeyboard } = await import('grammy');
