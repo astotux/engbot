@@ -1,6 +1,7 @@
 import type { BotContext } from '../context.js';
 import { upsertUser } from '../../db/repositories/users.js';
 import { mainMenuKeyboard, checklistKeyboard } from '../keyboards/mainMenu.js';
+import { formatMenuText } from './menuHandler.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 import { getBotInstance } from '../botInstance.js';
@@ -47,16 +48,6 @@ export async function handleStart(ctx: BotContext): Promise<void> {
   await deletePrevious(ctx);
 
   if (isNew) {
-    await sendScreen(
-      ctx,
-      `👋 Привет, ${user.first_name || 'друг'}!\n\n` +
-        `Я помогу тебе выучить базовый английский за 30 дней.\n\n` +
-        `🎁 Начнём с бесплатного чек-листа — 50 самых нужных английских слов для начинающих.\n\n` +
-        `А потом расскажу про полный курс из 30 уроков 📚`,
-      { reply_markup: mainMenuKeyboard(hasCourse) },
-    );
-    await sendFreeChecklist(ctx);
-
     const bot = getBotInstance();
     if (bot) {
       void notifyNewUser(bot, {
@@ -68,11 +59,34 @@ export async function handleStart(ctx: BotContext): Promise<void> {
         isNew: true,
       });
     }
-  } else {
+
+    const welcomeText =
+      `👋 <b>Привет, ${user.first_name || 'друг'}! Рады знакомству!</b>\n\n` +
+      `Добро пожаловать в <b>«Английский за 30 дней»</b> 🇬🇧\n\n` +
+      `Здесь ты легко освоишь базовый английский язык всего за <b>15–20 минут в день</b> — без зубрёжки, с понятными объяснениями, живыми голосовыми и видео-кружками.\n\n` +
+      `🎁 <b>Твой приветственный подарок:</b>\n` +
+      `Бесплатный PDF-чек-лист <b>«50 самых нужных английских слов»</b> — это фундамент, на котором строится большинство простых диалогов.\n\n` +
+      `🧠 <b>А ещё внутри:</b>\n` +
+      `Интерактивный словарный тренажёр на <b>500+ слов</b> с разделением по уровням (A1–C2) и умной работой над ошибками!\n\n` +
+      `<i>Жми кнопку ниже, чтобы забрать чек-лист 👇</i>`;
+
     await sendScreen(
       ctx,
-      `С возвращением, ${user.first_name || 'друг'}! 👋\n\nВыбери нужный раздел:`,
-      { reply_markup: mainMenuKeyboard(hasCourse) },
+      welcomeText,
+      {
+        parse_mode: 'HTML',
+        reply_markup: new InlineKeyboard()
+          .text('🎁 Получить бесплатный чек-лист', 'show_checklist').row()
+          .text('📚 Подробнее о курсе и программе', 'show_course_info').row()
+          .text('🧠 Словарный тренажёр', 'vocab:menu'),
+      },
+    );
+  } else {
+    const text = formatMenuText(hasCourse, user.first_name);
+    await sendScreen(
+      ctx,
+      text,
+      { parse_mode: 'HTML', reply_markup: mainMenuKeyboard(hasCourse) },
     );
   }
 }
@@ -94,9 +108,9 @@ export async function sendFreeChecklist(ctx: BotContext): Promise<void> {
         const channelName = getChannelName();
         await sendScreen(
           ctx,
-          `🎁 <b>Бесплатный чек-лист</b>\n\n` +
-            `Чтобы получить чек-лист, подпишись на наш канал ${channelName} — там выходят полезные материалы по английскому.\n\n` +
-            `После подписки нажми кнопку «✅ Я подписался(ась)»:`,
+          `🎁 <b>Бесплатный чек-лист: 50 ключевых слов</b>\n\n` +
+            `Чтобы скачать PDF-конспект, подпишись на наш канал ${channelName} — там выходят полезные разборы и лайфхаки по английскому.\n\n` +
+            `После подписки нажми <b>«✅ Я подписался(ась)»</b>, и бот сразу пришлёт тебе файл!`,
           { parse_mode: 'HTML', reply_markup: subscribeKeyboard() },
         );
         return;
@@ -139,16 +153,22 @@ export async function handleCheckSubscription(ctx: BotContext): Promise<void> {
 async function deliverChecklist(ctx: BotContext): Promise<void> {
   const checklistPath = path.resolve(config.freeChecklistPath);
 
+  const caption =
+    `🎁 <b>Твой бесплатный чек-лист готов!</b>\n\n` +
+    `В нём собраны 50 самых частых и нужных английских слов для уверенного старта.\n\n` +
+    `🔥 <b>Хочешь заговорить на английском?</b>\n` +
+    `В полном курсе <b>«Английский за 30 дней»</b> тебя ждут:\n` +
+    `• 30 пошаговых интерактивных уроков\n` +
+    `• Голосовые аудио и видео-кружки с произношением\n` +
+    `• <b>Словарный тренажёр в подарок:</b> 500+ слов по уровням A1–C2\n` +
+    `• Проверка домашних заданий прямо в боте\n\n` +
+    `💳 <b>Стоимость полного курса: всего 500 ₽</b> (навсегда)`;
+
   if (!fs.existsSync(checklistPath)) {
     logger.warn({ path: checklistPath }, 'PDF чек-лист не найден');
     await sendScreen(
       ctx,
-      '🎁 <b>Бесплатный чек-лист: 50 слов для начинающих</b>\n\n' +
-        '1. Hello — привет\n2. Goodbye — пока\n3. Please — пожалуйста\n' +
-        '4. Thank you — спасибо\n5. Sorry — извините\n' +
-        '6. Yes — да\n7. No — нет\n8. Good — хорошо\n9. Bad — плохо\n10. Water — вода\n' +
-        '11. Food — еда\n12. Home — дом\n13. Work — работа\n14. Day — день\n15. Time — время\n' +
-        '...\n\n<i>Полный PDF будет добавлен администратором.</i>',
+      caption + '\n\n<i>(Файл конспекта скоро появится, начни обучение кнопками ниже):</i>',
       { parse_mode: 'HTML', reply_markup: checklistKeyboard() },
     );
     return;
@@ -158,9 +178,8 @@ async function deliverChecklist(ctx: BotContext): Promise<void> {
     ctx,
     new InputFile(checklistPath, 'checklist-english-50-words.pdf'),
     {
-      caption:
-        '🎁 Вот твой бесплатный чек-лист — 50 самых нужных английских слов!\n\n' +
-        'Сохрани его и используй как шпаргалку.',
+      caption,
+      parse_mode: 'HTML',
       reply_markup: checklistKeyboard(),
     },
   );

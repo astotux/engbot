@@ -110,10 +110,44 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery('show_program', async (ctx) => {
     await ctx.answerCallbackQuery();
     const { InlineKeyboard } = await import('grammy');
-    const kb = new InlineKeyboard().text('🏠 На главную', 'main_menu');
+    const telegramId = ctx.from?.id;
+    const hasCourse = (() => {
+      if (!telegramId) return false;
+      const access = getCourseAccess(telegramId);
+      return !!access && (access.status === 'active' || access.status === 'completed');
+    })();
+
+    const kb = new InlineKeyboard();
+    if (!hasCourse) {
+      kb.text('💳 Получить курс за 500 ₽', 'buy_course').row();
+    }
+    kb.text('🧠 Словарный тренажёр', 'vocab:menu').row();
+    kb.text('🏠 В главное меню', 'main_menu');
+
     await editScreen(
       ctx,
-      `📚 <b>Программа:</b>\n\nДни 1–7: Основы, to be, числа\nДни 8–14: Present Simple\nДни 15–21: Бытовые ситуации\nДни 22–30: Повторение и финал`,
+      `📚 <b>Программа курса «Английский за 30 дней»</b>\n\n` +
+      `Курс разбит на 4 понятных и практических модуля:\n\n` +
+      `🔹 <b>Модуль 1 (Дни 1–7): Базовый фундамент</b>\n` +
+      `• Приветствия, вежливость, правила знакомства\n` +
+      `• Местоимения и ключевой глагол <i>to be</i>\n` +
+      `• Построение отрицаний, базовые вопросы и числа\n` +
+      `• PDF-конспекты, аудио и видео-кружки с произношением\n\n` +
+      `🔹 <b>Модуль 2 (Дни 8–14): Настоящее время и рутина</b>\n` +
+      `• Время Present Simple: утверждения и вопросы\n` +
+      `• Распорядок дня, время суток и наречия частоты\n` +
+      `• Отрицательные конструкции <i>don't / doesn't</i>\n\n` +
+      `🔹 <b>Модуль 3 (Дни 15–21): Живая речь и ситуации</b>\n` +
+      `• Модальный глагол <i>can / can't</i>\n` +
+      `• В кафе: заказ еды, напитков и счёт\n` +
+      `• В магазине: покупки, цены, ориентация в городе\n` +
+      `• Диалоги о семье, хобби и друзьях\n\n` +
+      `🔹 <b>Модуль 4 (Дни 22–30): Прошлое, будущее и свободная речь</b>\n` +
+      `• Планы на будущее (конструкция <i>going to</i>)\n` +
+      `• Прошедшее время: Past Simple и формы <i>was / were</i>\n` +
+      `• Составление уверенного рассказа о себе\n` +
+      `• Финальное повторение и итоговый экзамен\n\n` +
+      `🎁 <b>Бонус:</b> Неограниченный словарный тренажёр на <b>500+ слов</b> (A1–C2)!`,
       { parse_mode: 'HTML', reply_markup: kb },
     );
   });

@@ -7,33 +7,40 @@ import { InlineKeyboard } from 'grammy';
 export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
   const kb = new InlineKeyboard();
 
-  if (!hasCourse) {
-    kb.text('🎁 Бесплатный чек-лист', 'show_checklist').row();
-    kb.text('💳 Купить курс за 500 ₽', 'buy_course').row();
-  }
-
-  kb.text('📚 Программа курса', 'show_program').row();
-
   if (hasCourse) {
-    kb.text('📖 Мой урок', 'my_lesson').text('📊 Мой прогресс', 'my_progress').row();
+    // Пользователь уже обучается на курсе
+    kb.text('📖 Мой урок дня', 'my_lesson')
+      .text('📊 Мой прогресс', 'my_progress')
+      .row();
+    kb.text('🧠 Словарный тренажёр (A1–C2)', 'vocab:menu').row();
+    kb.text('📚 Программа курса', 'show_program')
+      .text('💬 Поддержка', 'support');
+  } else {
+    // Новый пользователь / гость
+    kb.text('✨ Получить курс за 500 ₽', 'buy_course').row();
+    kb.text('🎁 Бесплатный чек-лист', 'show_checklist')
+      .text('🧠 Словарный тренажёр', 'vocab:menu')
+      .row();
+    kb.text('📚 О курсе и программа', 'show_course_info')
+      .text('💬 Поддержка', 'support');
   }
-
-  kb.text('⬆️ Словарный запас', 'vocab:menu').row();
-  kb.text('🆘 Поддержка', 'support');
 
   return kb;
 }
 
 /** Кнопка «🏠 На главную» */
 export function backToMainKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text('🏠 На главную', 'main_menu');
+  return new InlineKeyboard().text('🏠 В главное меню', 'main_menu');
 }
 
 export function courseInfoKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('💳 Купить за 500 ₽', 'buy_course')
+    .text('💳 Купить курс за 500 ₽', 'buy_course')
     .row()
-    .text('🏠 На главную', 'main_menu');
+    .text('🎁 Бесплатный чек-лист', 'show_checklist')
+    .text('🧠 Словарный тренажёр', 'vocab:menu')
+    .row()
+    .text('🏠 В главное меню', 'main_menu');
 }
 
 export function startCourseKeyboard(): InlineKeyboard {
@@ -50,7 +57,7 @@ export function lessonKeyboard(dayNumber: number, hasAnswer: boolean): InlineKey
   if (dayNumber > 1) {
     kb.row().text('⬅️ Предыдущий урок', `lesson_day_${dayNumber - 1}`);
   }
-  kb.row().text('🏠 На главную', 'main_menu');
+  kb.row().text('🏠 В главное меню', 'main_menu');
   return kb;
 }
 
@@ -60,9 +67,12 @@ export function cancelKeyboard(): InlineKeyboard {
 
 export function checklistKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('📚 Узнать о курсе', 'show_course_info')
+    .text('✨ Получить полный курс за 500 ₽', 'buy_course')
     .row()
-    .text('🏠 На главную', 'main_menu');
+    .text('🧠 Попробовать словарь', 'vocab:menu')
+    .text('📚 О курсе', 'show_course_info')
+    .row()
+    .text('🏠 В главное меню', 'main_menu');
 }
 
 export function pauseResumeKeyboard(paused: boolean): InlineKeyboard {
