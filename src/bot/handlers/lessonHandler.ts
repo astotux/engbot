@@ -21,7 +21,14 @@ import {
   type LessonStep,
 } from '../../content/course.js';
 import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
-import { sendScreen, sendEphemeral } from '../sendHelper.js';
+import {
+  sendScreen,
+  editScreen,
+  sendEphemeral,
+  addCleanupMessage,
+  cleanupAuxiliaryMessages,
+  deleteUserMessage,
+} from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Форматирование шагов ─────────────────────────────────────────────────────
@@ -104,10 +111,14 @@ export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<
     const mediaType = explicitType ?? step.mediaType ?? (isAudio ? 'voice' : 'video_note');
 
     try {
+      let sentMsg;
       if (mediaType === 'voice') {
-        await ctx.replyWithVoice(new InputFile(resolvedPath));
+        sentMsg = await ctx.replyWithVoice(new InputFile(resolvedPath));
       } else {
-        await ctx.replyWithVideoNote(new InputFile(resolvedPath));
+        sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath));
+      }
+      if (sentMsg?.message_id) {
+        addCleanupMessage(ctx, sentMsg.message_id);
       }
     } catch (err) {
       logger.warn({ err, resolvedPath, mediaType }, 'Не удалось отправить медиафайл шага');
@@ -137,20 +148,25 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   const total = getTotalSteps(day);
   if (!step) return;
 
-  // Отправляем медиафайлы шага: mp3 (голосовое сообщение) или mp4 (видео-кружок)
-  // (не считается «экраном» — не удаляем предыдущее)
+  // Очищаем медиафайлы предыдущего шага
+  await cleanupAuxiliaryMessages(ctx);
+
+  // Отправляем медиафайлы текущего шага: mp3 (голосовое сообщение) или mp4 (видео-кружок)
   await sendStepMedia(ctx, step);
 
-  // Отправляем PDF для дня (только на первом шаге) — тоже не считается «экраном»
+  // Отправляем PDF для дня (только на первом шаге)
   if (stepIndex === 0) {
     const lesson = (await import('../../content/course.js')).getLessonByDay(day);
     if (lesson?.pdfFile) {
       const pdfPath = path.resolve(lesson.pdfFile);
       if (fs.existsSync(pdfPath)) {
         try {
-          await ctx.replyWithDocument(new InputFile(pdfPath, `day${String(day).padStart(2, '0')}.pdf`), {
+          const sentPdf = await ctx.replyWithDocument(new InputFile(pdfPath, `day${String(day).padStart(2, '0')}.pdf`), {
             caption: `📄 Конспект урока — День ${day}`,
           });
+          if (sentPdf?.message_id) {
+            addCleanupMessage(ctx, sentPdf.message_id);
+          }
         } catch (err) {
           logger.warn({ err, pdfPath }, 'Не удалось отправить PDF');
         }
@@ -164,6 +180,7 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
       reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
+      skipCleanup: true,
     });
 
   } else if (step.type === 'choice') {
@@ -171,6 +188,7 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
       reply_markup: choiceKeyboard(step, day, stepIndex),
+      skipCleanup: true,
     });
 
   } else if (step.type === 'input') {
@@ -179,6 +197,7 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
       reply_markup: inputKeyboard(day, stepIndex),
+      skipCleanup: true,
     });
 
   } else if (step.type === 'free') {
@@ -187,6 +206,7 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
       reply_markup: inputKeyboard(day, stepIndex),
+      skipCleanup: true,
     });
   }
 }
@@ -288,14 +308,16 @@ export async function handleChoiceCallback(
       reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
     });
   } else {
-    // Неверно — показываем мини-подсказку, кнопки остаются
+    // Неверно — обновляем этот же экран с подсказкой, кнопки остаются
     const step = getStep(day, stepIndex) as ChoiceStep;
-    await sendEphemeral(
+    const baseText = formatChoiceStep(step, day, stepIndex, total);
+    await editScreen(
       ctx,
-      `🤔 Не совсем верно. Попробуй ещё раз!\n\n💡 <i>${step.hint}</i>`,
+      `${baseText}\n\n🤔 <b>Не совсем верно. Попробуй ещё раз!</b>\n💡 <i>${step.hint}</i>`,
       {
         parse_mode: 'HTML',
         reply_markup: choiceKeyboard(step, day, stepIndex),
+        skipCleanup: true,
       },
     );
   }
@@ -320,12 +342,16 @@ export async function handleNextStep(ctx: BotContext, day: number, stepIndex: nu
 // ─── Callback: подсказка ──────────────────────────────────────────────────────
 
 export async function handleHintCallback(ctx: BotContext, day: number, stepIndex: number): Promise<void> {
-  await ctx.answerCallbackQuery();
   const step = getStep(day, stepIndex);
-  if (!step) return;
+  if (!step) {
+    await ctx.answerCallbackQuery();
+    return;
+  }
   const hint = 'hint' in step ? step.hint : ('tip' in step ? step.tip : '');
-  // Подсказка — эфемерное сообщение
-  await sendEphemeral(ctx, `💡 <i>${hint}</i>`, { parse_mode: 'HTML' });
+  await ctx.answerCallbackQuery({
+    text: hint ? `💡 Подсказка:\n\n${hint}` : 'Подсказка отсутствует',
+    show_alert: true,
+  });
 }
 
 // ─── Callback: урок завершён ──────────────────────────────────────────────────
@@ -366,6 +392,9 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
   const text = ctx.message?.text;
   if (!text || text.startsWith('/')) return;
 
+  // Сразу удаляем входящее текстовое сообщение пользователя
+  deleteUserMessage(ctx);
+
   if (text.length > 1000) {
     await sendEphemeral(ctx, '⚠️ Ответ слишком длинный. Попробуй короче.');
     return;
@@ -402,12 +431,17 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
         },
       );
     } else {
-      // Неверно — мини-подсказка, ждём следующую попытку
+      // Неверно — обновляем экран на месте, показываем ошибку и ждём следующую попытку
       const step = getStep(day, stepIndex) as InputStep;
-      await sendEphemeral(
+      const baseText = formatInputStep(step, day, stepIndex, total);
+      await sendScreen(
         ctx,
-        `🤔 Не совсем верно. Попробуй ещё раз!\n\n💡 <i>${step.hint}</i>`,
-        { parse_mode: 'HTML' },
+        `${baseText}\n\n🤔 <b>Не совсем верно:</b> «${text}»\n💡 <i>${step.hint}</i>`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: inputKeyboard(day, stepIndex),
+          skipCleanup: true,
+        },
       );
     }
   }

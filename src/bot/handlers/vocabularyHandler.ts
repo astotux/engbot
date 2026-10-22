@@ -28,7 +28,6 @@ import {
 import {
   getSeenWordIds,
   countActiveWords,
-  countSeenWords,
   countErrorWords,
   getCurrentQuestion,
   getSessionQuestions,
@@ -44,7 +43,7 @@ import {
   settingsKeyboard,
   backToVocabMenuKeyboard,
 } from '../keyboards/vocabularyKeyboards.js';
-import { sendScreen, sendEphemeral, editScreen } from '../sendHelper.js';
+import { sendScreen, sendEphemeral, editScreen, deleteUserMessage } from '../sendHelper.js';
 import { InlineKeyboard } from 'grammy';
 import type { SessionSummary, VocabQuestion } from '../../services/vocabularyService.js';
 
@@ -73,9 +72,9 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
 
   const settings = getUserSettings(telegramId);
   const totalWords = countActiveWords(settings.difficulty);
-  const seenCount = countSeenWords(telegramId, settings.difficulty);
   const hasCourse = userHasCourse(telegramId);
   const demoUsed = !hasCourse && isDemoQuizUsed(telegramId);
+  const stats = getUserVocabStats(telegramId, settings.difficulty);
 
   let hint = '';
   if (!hasCourse) {
@@ -88,7 +87,7 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
     ctx,
     `📖 <b>Словарный запас</b> (Уровень: <b>${settings.difficulty}</b>)\n\n` +
     `Слов в базе уровня: ${totalWords}\n` +
-    `Ты изучил(а): ${seenCount} из ${totalWords}` +
+    `Ты освоил(а): ${stats.masteredWords} из ${totalWords}` +
     hint + '\n\n' +
     `Выбери действие:`,
     { parse_mode: 'HTML', reply_markup: vocabMenuKeyboard() },
@@ -298,6 +297,9 @@ export async function handleVocabTextAnswer(ctx: BotContext): Promise<void> {
   const text = ctx.message?.text;
   if (!text || text.startsWith('/')) return;
 
+  // Удаляем сообщение пользователя с ответом, чтобы не засорять чат
+  deleteUserMessage(ctx);
+
   const { sessionId, questionId } = awaiting;
 
   const session = getSession(sessionId);
@@ -339,14 +341,12 @@ async function processAndRespond(
     : `❌ <b>Неверно.</b>\nПравильный ответ: <b>${correctAnswer}</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`;
 
   if (sessionDone && summary) {
-    await sendEphemeral(ctx, feedbackText, { parse_mode: 'HTML' });
-
     // Помечаем демо-тест как использованный (только если нет курса)
     if (!userHasCourse(telegramId)) {
       markDemoQuizUsed(telegramId);
     }
 
-    await sendSummary(ctx, summary, !userHasCourse(telegramId));
+    await sendSummary(ctx, summary, !userHasCourse(telegramId), feedbackText);
     ctx.session.vocabSessionId = undefined;
     ctx.session.vocabAwaitingAnswer = undefined;
   } else if (nextQuestion) {
@@ -491,10 +491,16 @@ async function sendSummary(
   ctx: BotContext,
   summary: SessionSummary,
   showBuyPromo: boolean,
+  lastFeedback?: string,
 ): Promise<void> {
   const { totalQuestions, correctCount, wrongCount, skippedCount, accuracy, questions } = summary;
 
-  let text =
+  let text = '';
+  if (lastFeedback) {
+    text += `${lastFeedback}\n\n`;
+  }
+
+  text +=
     `🏆 <b>Результаты</b>\n\n` +
     `Вопросов: ${totalQuestions}\n` +
     `✅ Правильно: ${correctCount}\n` +

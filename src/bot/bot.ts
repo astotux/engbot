@@ -41,7 +41,7 @@ import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse } from '../db/repositories/courseAccess.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 import { mainMenuKeyboard } from './keyboards/mainMenu.js';
-import { sendScreen, editScreen } from './sendHelper.js';
+import { sendScreen, editScreen, deleteUserMessage } from './sendHelper.js';
 
 export function createBot(): Bot<BotContext> {
   const bot = new Bot<BotContext>(config.botToken);
@@ -51,6 +51,10 @@ export function createBot(): Bot<BotContext> {
   // Сбрасываем флаг блокировки при любом входящем сообщении
   bot.use(async (ctx, next) => {
     if (ctx.from?.id) setUserBlocked(ctx.from.id, false);
+    // Удаляем команды пользователя (кроме админских), чтобы сохранять чистый чат в одном сообщении
+    if (ctx.message?.text?.startsWith('/') && !ctx.message.text.startsWith('/admin')) {
+      deleteUserMessage(ctx);
+    }
     await next();
   });
 
@@ -262,6 +266,7 @@ export function createBot(): Bot<BotContext> {
 
   // 3. Fallback
   bot.on('message:text', async (ctx) => {
+    deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
     const hasCourse = (() => {
       if (!telegramId) return false;
@@ -274,6 +279,7 @@ export function createBot(): Bot<BotContext> {
   });
 
   bot.on('message', async (ctx) => {
+    deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
     const hasCourse = (() => {
       if (!telegramId) return false;
