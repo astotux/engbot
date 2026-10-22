@@ -28,6 +28,7 @@ import {
 import {
   getSeenWordIds,
   countActiveWords,
+  countSeenWords,
   countErrorWords,
   getCurrentQuestion,
   getSessionQuestions,
@@ -70,8 +71,9 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const totalWords = countActiveWords();
-  const seenCount = getSeenWordIds(telegramId).length;
+  const settings = getUserSettings(telegramId);
+  const totalWords = countActiveWords(settings.difficulty);
+  const seenCount = countSeenWords(telegramId, settings.difficulty);
   const hasCourse = userHasCourse(telegramId);
   const demoUsed = !hasCourse && isDemoQuizUsed(telegramId);
 
@@ -84,8 +86,8 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
 
   await editScreen(
     ctx,
-    `📖 <b>Словарный запас</b>\n\n` +
-    `Слов в базе: ${totalWords}\n` +
+    `📖 <b>Словарный запас</b> (Уровень: <b>${settings.difficulty}</b>)\n\n` +
+    `Слов в базе уровня: ${totalWords}\n` +
     `Ты изучил(а): ${seenCount} из ${totalWords}` +
     hint + '\n\n' +
     `Выбери действие:`,
@@ -101,18 +103,19 @@ export async function handleVocabStudy(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const { words } = startStudySession(telegramId);
+  const settings = getUserSettings(telegramId);
+  const { words } = startStudySession(telegramId, settings.difficulty);
 
   if (words.length === 0) {
     await editScreen(
       ctx,
-      '📭 Все слова уже изучены! Попробуй проверить знания.',
+      `📭 Все слова уровня ${settings.difficulty} уже изучены! Попробуй проверить знания или смени уровень в настройках.`,
       { reply_markup: vocabMenuKeyboard() },
     );
     return;
   }
 
-  let text = `📚 <b>Изучаем ${words.length} слов</b>\n\n`;
+  let text = `📚 <b>Изучаем ${words.length} слов (${settings.difficulty})</b>\n\n`;
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     text += `<b>${i + 1}. ${w.english_word}</b> — ${w.russian_translation}`;
@@ -149,7 +152,7 @@ export async function handleVocabQuiz(
         ctx,
         `🔒 <b>Словарный запас — подарок к курсу</b>\n\n` +
         `Ты уже прошёл(а) бесплатный демо-тест!\n\n` +
-        `Полный словарный раздел — более 50 слов, неограниченные тесты, повторение ошибок — входит в курс «Английский за 30 дней».\n\n` +
+        `Полный словарный раздел — сотни слов с разделением по уровням (A1-A2, B1-B2, C1-C2), неограниченные тесты, повторение ошибок — входит в курс «Английский за 30 дней».\n\n` +
         `💳 <b>Стоимость курса: 500 ₽</b>\n\n` +
         `Купи курс и получи словарный запас в подарок 🎁`,
         { parse_mode: 'HTML', reply_markup: buyCourseKeyboard() },
@@ -159,22 +162,24 @@ export async function handleVocabQuiz(
   }
   // ── Конец проверки ────────────────────────────────────────────────────────
 
+  const settings = getUserSettings(telegramId);
+
   if (sessionType === 'review_errors') {
-    const errorCount = countErrorWords(telegramId);
+    const errorCount = countErrorWords(telegramId, settings.difficulty);
     if (errorCount === 0) {
       await editScreen(
         ctx,
-        '🎉 Отличная работа! У тебя нет ошибок для повторения.\n\nМожешь изучить новые слова или пройти обычный тест.',
+        `🎉 Отличная работа! У тебя нет ошибок для повторения на уровне ${settings.difficulty}.\n\nМожешь изучить новые слова или пройти обычный тест.`,
         { reply_markup: vocabMenuKeyboard() },
       );
       return;
     }
   } else {
-    const seenCount = getSeenWordIds(telegramId).length;
+    const seenCount = getSeenWordIds(telegramId, settings.difficulty).length;
     if (seenCount === 0) {
       await editScreen(
         ctx,
-        '📚 Ты ещё не изучал(а) слова. Сначала познакомься с первыми 10 словами!',
+        `📚 На уровне ${settings.difficulty} ты ещё не изучал(а) слова. Сначала познакомься с первыми 10 словами!`,
         { reply_markup: vocabMenuKeyboard() },
       );
       return;
@@ -520,7 +525,7 @@ async function sendSummary(
       `Купи курс «Английский за 30 дней» и получи:\n` +
       `• Неограниченные тесты\n` +
       `• Повторение ошибок\n` +
-      `• 50+ слов с примерами\n` +
+      `• 500+ слов с примерами и уровнями (A1–C2)\n` +
       `• Прогресс и статистика\n\n` +
       `💳 <b>Всего 500 ₽</b>`;
   }
@@ -543,11 +548,12 @@ export async function handleVocabStats(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const stats = getUserVocabStats(telegramId);
+  const settings = getUserSettings(telegramId);
+  const stats = getUserVocabStats(telegramId, settings.difficulty);
 
   let text =
-    `📊 <b>Мой прогресс — Словарный запас</b>\n\n` +
-    `📖 Изучено слов: ${stats.seenWords}\n` +
+    `📊 <b>Мой прогресс — Словарный запас (${settings.difficulty})</b>\n\n` +
+    `📖 Изучено слов уровня: ${stats.seenWords}\n` +
     `✅ Усвоено: ${stats.masteredWords}\n` +
     `🧠 Тестов пройдено: ${stats.completedSessions}\n`;
 
@@ -560,7 +566,7 @@ export async function handleVocabStats(ctx: BotContext): Promise<void> {
   }
 
   if (stats.wordsNeedingReview.length > 0) {
-    text += `\n<b>Нужно повторить:</b>\n`;
+    text += `\n<b>Нужно повторить на уровне ${settings.difficulty}:</b>\n`;
     for (const w of stats.wordsNeedingReview.slice(0, 5)) {
       text += `• ${w.english_word} — ${w.russian_translation} (${w.wrong_answers} ош.)\n`;
     }
@@ -585,6 +591,11 @@ export async function handleVocabSettings(ctx: BotContext): Promise<void> {
 
   const settings = getUserSettings(telegramId);
 
+  const diffNames: Record<string, string> = {
+    'A1-A2': 'A1–A2 (Начальный: базовые слова)',
+    'B1-B2': 'B1–B2 (Средний: речь, работа, путешествия)',
+    'C1-C2': 'C1–C2 (Продвинутый: сложная лексика, идиомы)',
+  };
   const directionText = settings.direction === 'en_to_ru'
     ? '🇬🇧→🇷🇺 Английское → Русский'
     : '🇷🇺→🇬🇧 Русский → Английское';
@@ -596,14 +607,26 @@ export async function handleVocabSettings(ctx: BotContext): Promise<void> {
 
   const text =
     `⚙️ <b>Настройки обучения</b>\n\n` +
+    `📊 Уровень сложности: <b>${diffNames[settings.difficulty] ?? settings.difficulty}</b>\n` +
     `📐 Направление: ${directionText}\n` +
     `📝 Способ ответа: ${modeText[settings.answer_mode]}\n\n` +
     `Выбери нужные параметры:`;
 
   await editScreen(ctx, text, {
     parse_mode: 'HTML',
-    reply_markup: settingsKeyboard(settings.direction, settings.answer_mode),
+    reply_markup: settingsKeyboard(settings.direction, settings.answer_mode, settings.difficulty),
   });
+}
+
+export async function handleSetDifficulty(
+  ctx: BotContext,
+  difficulty: 'A1-A2' | 'B1-B2' | 'C1-C2',
+): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+  await ctx.answerCallbackQuery('Уровень изменён ✓');
+  updateUserSettings(telegramId, { difficulty });
+  await handleVocabSettings(ctx);
 }
 
 export async function handleSetDirection(

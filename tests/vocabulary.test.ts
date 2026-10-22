@@ -657,3 +657,119 @@ describe('demo quiz restriction', () => {
     expect(isDemoQuizUsed(902)).toBe(false);
   });
 });
+
+// ── 11. Градация сложности (A1-A2, B1-B2, C1-C2) и немиксование в тестах ───────
+
+describe('vocabulary difficulty levels and test isolation', () => {
+  it('по умолчанию у пользователя уровень A1-A2', () => {
+    seedUser(1001);
+    const settings = getUserSettings(1001);
+    expect(settings.difficulty).toBe('A1-A2');
+  });
+
+  it('updateUserSettings позволяет изменить уровень сложности', () => {
+    seedUser(1002);
+    updateUserSettings(1002, { difficulty: 'B1-B2' });
+    expect(getUserSettings(1002).difficulty).toBe('B1-B2');
+
+    updateUserSettings(1002, { difficulty: 'C1-C2' });
+    expect(getUserSettings(1002).difficulty).toBe('C1-C2');
+  });
+
+  it('pickStudyWords возвращает строго слова выбранного уровня', () => {
+    seedUser(1003);
+    // Добавляем слова разных уровней
+    insertWord('apple', 'яблоко', [], null, null, 'A1-A2');
+    insertWord('banana', 'банан', [], null, null, 'A1-A2');
+    insertWord('negotiate', 'вести переговоры', [], null, null, 'B1-B2');
+    insertWord('sustainable', 'устойчивый', [], null, null, 'B1-B2');
+    insertWord('ephemeral', 'эфемерный', [], null, null, 'C1-C2');
+
+    // Пользователь на B1-B2
+    updateUserSettings(1003, { difficulty: 'B1-B2' });
+    const { words } = pickStudyWords(1003);
+
+    expect(words.length).toBeGreaterThan(0);
+    for (const w of words) {
+      expect(w.difficulty).toBe('B1-B2');
+    }
+  });
+
+  it('pickQuizWords возвращает строго слова выбранного уровня', () => {
+    seedUser(1004);
+    const w1 = insertWord('cat_a1', 'кот', [], null, null, 'A1-A2');
+    const w2 = insertWord('dog_b1', 'собака', [], null, null, 'B1-B2');
+
+    markWordSeen(1004, w1.id);
+    markWordSeen(1004, w2.id);
+
+    // При уровне A1-A2 вернёт только w1
+    updateUserSettings(1004, { difficulty: 'A1-A2' });
+    const a1Words = pickQuizWords(1004);
+    expect(a1Words.map((w) => w.id)).toContain(w1.id);
+    expect(a1Words.map((w) => w.id)).not.toContain(w2.id);
+
+    // При уровне B1-B2 вернёт только w2
+    updateUserSettings(1004, { difficulty: 'B1-B2' });
+    const b1Words = pickQuizWords(1004);
+    expect(b1Words.map((w) => w.id)).toContain(w2.id);
+    expect(b1Words.map((w) => w.id)).not.toContain(w1.id);
+  });
+
+  it('buildTestOptions не миксует варианты ответов между уровнями', () => {
+    // Создаем 5 слов A1-A2
+    const a1_1 = insertWord('dog', 'собака', [], null, null, 'A1-A2');
+    insertWord('cat', 'кот', [], null, null, 'A1-A2');
+    insertWord('bird', 'птица', [], null, null, 'A1-A2');
+    insertWord('fish', 'рыба', [], null, null, 'A1-A2');
+    insertWord('cow', 'корова', [], null, null, 'A1-A2');
+
+    // И слова B1-B2 и C1-C2 с совершенно другими значениями
+    insertWord('achievement', 'достижение', [], null, null, 'B1-B2');
+    insertWord('consequence', 'последствие', [], null, null, 'B1-B2');
+    insertWord('meticulous', 'дотошный', [], null, null, 'C1-C2');
+
+    const optionsResult = buildTestOptions(a1_1, 'en_to_ru');
+    expect(optionsResult).not.toBeNull();
+    expect(optionsResult!.options).toHaveLength(4);
+
+    // Варианты ответов должны быть ТОЛЬКО из A1-A2
+    const a1Translations = ['собака', 'кот', 'птица', 'рыба', 'корова'];
+    for (const opt of optionsResult!.options) {
+      expect(a1Translations).toContain(opt);
+      expect(opt).not.toBe('достижение');
+      expect(opt).not.toBe('последствие');
+      expect(opt).not.toBe('дотошный');
+    }
+  });
+
+  it('startQuizSession создаёт сессию с изолированными вопросами и вариантами', () => {
+    seedUser(1005);
+    updateUserSettings(1005, { difficulty: 'B1-B2' });
+
+    // Создаем слова для B1-B2
+    const bWords = [
+      insertWord('b_word1', 'б_слово1', [], null, null, 'B1-B2'),
+      insertWord('b_word2', 'б_слово2', [], null, null, 'B1-B2'),
+      insertWord('b_word3', 'б_слово3', [], null, null, 'B1-B2'),
+      insertWord('b_word4', 'б_слово4', [], null, null, 'B1-B2'),
+    ];
+    // И слова A1-A2
+    insertWord('a_word1', 'а_слово1', [], null, null, 'A1-A2');
+
+    bWords.forEach((w) => markWordSeen(1005, w.id));
+
+    const result = startQuizSession(1005);
+    expect('session' in result).toBe(true);
+    if ('session' in result) {
+      const questions = getSessionQuestions(result.session.id);
+      expect(questions.length).toBe(bWords.length);
+
+      for (const q of questions) {
+        const options: string[] = JSON.parse(q.options_json);
+        // Ни один вариант не должен быть из A1-A2 ('а_слово1')
+        expect(options).not.toContain('а_слово1');
+      }
+    }
+  });
+});

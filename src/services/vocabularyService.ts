@@ -25,13 +25,20 @@ import {
   updateUserSettings,
   markDemoQuizUsed,
   isDemoQuizUsed,
+  countSeenWords,
+  countMasteredWords,
+  countCompletedSessions,
+  getTotalAnswerStats,
+  getWordsNeedingReview,
   type VocabWord,
   type VocabSession,
   type VocabQuestion,
   type VocabUserSettings,
+  type VocabDifficulty,
+  DEFAULT_DIFFICULTY,
 } from '../db/repositories/vocabulary.js';
 
-export type { VocabWord, VocabSession, VocabQuestion, VocabUserSettings };
+export type { VocabWord, VocabSession, VocabQuestion, VocabUserSettings, VocabDifficulty };
 
 const QUESTIONS_PER_SESSION = 10;
 
@@ -70,9 +77,10 @@ export interface PickWordsResult {
   newCount: number;
 }
 
-export function pickStudyWords(telegramId: number): PickWordsResult {
-  const seenIds = new Set(getSeenWordIds(telegramId));
-  const allWords = getAllActiveWords();
+export function pickStudyWords(telegramId: number, difficulty?: VocabDifficulty): PickWordsResult {
+  const targetDifficulty = difficulty ?? getUserSettings(telegramId).difficulty ?? DEFAULT_DIFFICULTY;
+  const seenIds = new Set(getSeenWordIds(telegramId, targetDifficulty));
+  const allWords = getAllActiveWords(targetDifficulty);
   const newWords = allWords.filter((w) => !seenIds.has(w.id));
 
   const picked: VocabWord[] = [];
@@ -85,9 +93,9 @@ export function pickStudyWords(telegramId: number): PickWordsResult {
   }
   const newCount = picked.length;
 
-  // Если новых не хватает — дополняем невыученными
+  // Если новых не хватает — дополняем невыученными того же уровня
   if (picked.length < QUESTIONS_PER_SESSION) {
-    const unmasteredIds = getUnmasteredSeenWordIds(telegramId);
+    const unmasteredIds = getUnmasteredSeenWordIds(telegramId, targetDifficulty);
     const pickedIds = new Set(picked.map((w) => w.id));
     const extra = getWordsByIds(unmasteredIds.filter((id) => !pickedIds.has(id)));
     for (const w of shuffle(extra)) {
@@ -99,17 +107,18 @@ export function pickStudyWords(telegramId: number): PickWordsResult {
   return { words: picked, newCount };
 }
 
-export function pickQuizWords(telegramId: number): VocabWord[] {
-  const seenIds = getSeenWordIds(telegramId);
+export function pickQuizWords(telegramId: number, difficulty?: VocabDifficulty): VocabWord[] {
+  const targetDifficulty = difficulty ?? getUserSettings(telegramId).difficulty ?? DEFAULT_DIFFICULTY;
+  const seenIds = getSeenWordIds(telegramId, targetDifficulty);
   if (seenIds.length === 0) return [];
 
-  // Слова с ошибками — выше приоритет
-  const errorIds = getErrorWordIds(telegramId, QUESTIONS_PER_SESSION);
+  // Слова с ошибками — выше приоритет (только выбранного уровня)
+  const errorIds = getErrorWordIds(telegramId, QUESTIONS_PER_SESSION, targetDifficulty);
   const errorWords = getWordsByIds(errorIds);
   const picked = new Map<number, VocabWord>();
   for (const w of errorWords) picked.set(w.id, w);
 
-  // Добавляем остальные увиденные слова
+  // Добавляем остальные увиденные слова того же уровня
   if (picked.size < QUESTIONS_PER_SESSION) {
     const rest = shuffle(getWordsByIds(seenIds.filter((id) => !picked.has(id))));
     for (const w of rest) {
@@ -121,8 +130,9 @@ export function pickQuizWords(telegramId: number): VocabWord[] {
   return shuffle(Array.from(picked.values()));
 }
 
-export function pickReviewWords(telegramId: number): VocabWord[] {
-  const errorIds = getErrorWordIds(telegramId, QUESTIONS_PER_SESSION);
+export function pickReviewWords(telegramId: number, difficulty?: VocabDifficulty): VocabWord[] {
+  const targetDifficulty = difficulty ?? getUserSettings(telegramId).difficulty ?? DEFAULT_DIFFICULTY;
+  const errorIds = getErrorWordIds(telegramId, QUESTIONS_PER_SESSION, targetDifficulty);
   return getWordsByIds(errorIds);
 }
 
@@ -139,10 +149,14 @@ function buildDistractors(
     : correctWord.english_word;
   const normalizedCorrect = normalizeAnswer(correctAnswer);
 
-  // Пул слов-кандидатов (не совпадающих с правильным)
+  // Пул слов-кандидатов (не совпадающих с правильным И СТРОГО ТОГО ЖЕ УРОВНЯ СЛОЖНОСТИ)
   const candidates = shuffle(allWords.filter((w) => {
     const answer = direction === 'en_to_ru' ? w.russian_translation : w.english_word;
-    return normalizeAnswer(answer) !== normalizedCorrect && w.id !== correctWord.id;
+    return (
+      normalizeAnswer(answer) !== normalizedCorrect &&
+      w.id !== correctWord.id &&
+      w.difficulty === correctWord.difficulty
+    );
   }));
 
   const distractors: string[] = [];
@@ -168,7 +182,7 @@ export function buildTestOptions(
   const correctAnswer = direction === 'en_to_ru'
     ? correctWord.russian_translation
     : correctWord.english_word;
-  const allWords = getAllActiveWords();
+  const allWords = getAllActiveWords(correctWord.difficulty);
   const distractors = buildDistractors(correctWord, allWords, direction, 3);
 
   if (distractors.length < 3) return null; // недостаточно вариантов
@@ -185,11 +199,11 @@ export interface StartSessionResult {
   totalQuestions: number;
 }
 
-export function startStudySession(telegramId: number): { words: VocabWord[] } {
+export function startStudySession(telegramId: number, difficulty?: VocabDifficulty): { words: VocabWord[] } {
   // Отменяем активные сессии
   cancelUserActiveSessions(telegramId);
 
-  const { words } = pickStudyWords(telegramId);
+  const { words } = pickStudyWords(telegramId, difficulty);
   // Отмечаем слова как увиденные
   for (const w of words) markWordSeen(telegramId, w.id);
 
@@ -201,21 +215,21 @@ export function startQuizSession(
   sessionType: VocabSession['session_type'] = 'quiz',
   words?: VocabWord[],
 ): StartSessionResult | { error: 'no_words' } {
+  const settings = getUserSettings(telegramId);
   const selectedWords = words ?? (sessionType === 'review_errors'
-    ? pickReviewWords(telegramId)
-    : pickQuizWords(telegramId));
+    ? pickReviewWords(telegramId, settings.difficulty)
+    : pickQuizWords(telegramId, settings.difficulty));
 
   if (selectedWords.length === 0) return { error: 'no_words' };
 
   cancelUserActiveSessions(telegramId);
 
-  const settings = getUserSettings(telegramId);
   const session = createSession(telegramId, sessionType, JSON.stringify({
     direction: settings.direction,
     answer_mode: settings.answer_mode,
+    difficulty: settings.difficulty,
   }));
 
-  const allWords = getAllActiveWords();
   let altNext = settings.alt_next;
 
   for (let i = 0; i < selectedWords.length; i++) {
@@ -251,7 +265,6 @@ export function startQuizSession(
     }
 
     insertQuestion(session.id, word.id, i, qType, direction, options, correctAnswer);
-    void allWords;
   }
 
   // Обновляем alt_next в настройках если нужно
@@ -436,14 +449,6 @@ export function restartSession(
 
 // ─── Статистика пользователя ──────────────────────────────────────────────────
 
-import {
-  countSeenWords,
-  countMasteredWords,
-  countCompletedSessions,
-  getTotalAnswerStats,
-  getWordsNeedingReview,
-} from '../db/repositories/vocabulary.js';
-
 export interface UserVocabStats {
   seenWords: number;
   masteredWords: number;
@@ -455,13 +460,13 @@ export interface UserVocabStats {
   wordsNeedingReview: Array<{ word_id: number; english_word: string; russian_translation: string; wrong_answers: number }>;
 }
 
-export function getUserVocabStats(telegramId: number): UserVocabStats {
-  const seenWords = countSeenWords(telegramId);
-  const masteredWords = countMasteredWords(telegramId);
+export function getUserVocabStats(telegramId: number, difficulty?: VocabDifficulty): UserVocabStats {
+  const seenWords = countSeenWords(telegramId, difficulty);
+  const masteredWords = countMasteredWords(telegramId, difficulty);
   const completedSessions = countCompletedSessions(telegramId);
   const { total, correct, wrong } = getTotalAnswerStats(telegramId);
   const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
-  const wordsNeedingReview = getWordsNeedingReview(telegramId, 10);
+  const wordsNeedingReview = getWordsNeedingReview(telegramId, 10, difficulty);
 
   return {
     seenWords,

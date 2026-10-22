@@ -69,16 +69,26 @@ export function summaryKeyboard(sessionId: number, hasErrors: boolean): InlineKe
 export function settingsKeyboard(
   direction: 'en_to_ru' | 'ru_to_en',
   mode: 'test' | 'written' | 'alternating',
+  difficulty: 'A1-A2' | 'B1-B2' | 'C1-C2' = 'A1-A2',
 ): InlineKeyboard {
+  // Уровень сложности — три варианта, активное отмечено ✅
+  const diff1 = `${difficulty === 'A1-A2' ? '✅ ' : ''}A1–A2`;
+  const diff2 = `${difficulty === 'B1-B2' ? '✅ ' : ''}B1–B2`;
+  const diff3 = `${difficulty === 'C1-C2' ? '✅ ' : ''}C1–C2`;
+
   // Направление — взаимоисключающие, активное отмечено ✅
   const d1 = `${direction === 'en_to_ru' ? '✅ ' : ''}🇬🇧→🇷🇺 Англ → Рус`;
   const d2 = `${direction === 'ru_to_en' ? '✅ ' : ''}🇷🇺→🇬🇧 Рус → Англ`;
+
   // Способ ответа — три варианта, активное отмечено ✅
   const m1 = `${mode === 'test' ? '✅ ' : ''}Тест`;
   const m2 = `${mode === 'written' ? '✅ ' : ''}Письменно`;
   const m3 = `${mode === 'alternating' ? '✅ ' : ''}Чередование`;
 
   return new InlineKeyboard()
+    .text(diff1, 'vocab:set:diff:A1-A2')
+    .text(diff2, 'vocab:set:diff:B1-B2')
+    .text(diff3, 'vocab:set:diff:C1-C2').row()
     .text(d1, 'vocab:set:dir:en_to_ru')
     .text(d2, 'vocab:set:dir:ru_to_en').row()
     .text(m1, 'vocab:set:mode:test')

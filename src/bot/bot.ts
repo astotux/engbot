@@ -33,6 +33,7 @@ import {
   handleRestartSession,
   handleVocabStats,
   handleVocabSettings,
+  handleSetDifficulty,
   handleSetDirection,
   handleSetMode,
 } from './handlers/vocabularyHandler.js';
@@ -197,6 +198,11 @@ export function createBot(): Bot<BotContext> {
   // Статистика и настройки
   bot.callbackQuery('vocab:stats', handleVocabStats);
   bot.callbackQuery('vocab:settings', handleVocabSettings);
+
+  // Настройки — уровень сложности (A1-A2, B1-B2, C1-C2)
+  bot.callbackQuery('vocab:set:diff:A1-A2', async (ctx) => handleSetDifficulty(ctx, 'A1-A2'));
+  bot.callbackQuery('vocab:set:diff:B1-B2', async (ctx) => handleSetDifficulty(ctx, 'B1-B2'));
+  bot.callbackQuery('vocab:set:diff:C1-C2', async (ctx) => handleSetDifficulty(ctx, 'C1-C2'));
 
   // Настройки — направление
   bot.callbackQuery('vocab:set:dir:en_to_ru', async (ctx) => handleSetDirection(ctx, 'en_to_ru'));

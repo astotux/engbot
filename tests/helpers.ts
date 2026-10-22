@@ -3,6 +3,7 @@ import { up as migration001, version as v001 } from '../src/db/migrations/001_in
 import { up as migration002, version as v002 } from '../src/db/migrations/002_lesson_steps.js';
 import { up as migration003, version as v003 } from '../src/db/migrations/003_vocabulary.js';
 import { up as migration004, version as v004 } from '../src/db/migrations/004_vocab_demo.js';
+import { up as migration005, version as v005 } from '../src/db/migrations/005_vocab_difficulty.js';
 
 /** Создаёт временную in-memory SQLite базу для тестов */
 export function createTestDb(): Database.Database {
@@ -28,6 +29,9 @@ export function createTestDb(): Database.Database {
 
   migration004(db);
   db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(v004);
+
+  migration005(db);
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(v005);
 
   return db;
 }

@@ -5,6 +5,9 @@ import { getDb } from '../connection.js';
 
 // ─── Типы ────────────────────────────────────────────────────────────────────
 
+export type VocabDifficulty = 'A1-A2' | 'B1-B2' | 'C1-C2';
+export const DEFAULT_DIFFICULTY: VocabDifficulty = 'A1-A2';
+
 export interface VocabWord {
   id: number;
   english_word: string;
@@ -12,6 +15,7 @@ export interface VocabWord {
   accepted_translations: string; // JSON string
   example_en: string | null;
   example_ru: string | null;
+  difficulty: VocabDifficulty;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -66,13 +70,19 @@ export interface VocabUserSettings {
   direction: 'en_to_ru' | 'ru_to_en';
   answer_mode: 'test' | 'written' | 'alternating';
   alt_next: 'test' | 'written';
+  difficulty: VocabDifficulty;
   demo_quiz_used: number; // 0 = не использован, 1 = уже прошёл
   updated_at: string;
 }
 
 // ─── Слова ───────────────────────────────────────────────────────────────────
 
-export function getAllActiveWords(): VocabWord[] {
+export function getAllActiveWords(difficulty?: string): VocabWord[] {
+  if (difficulty) {
+    return getDb()
+      .prepare('SELECT * FROM vocabulary_words WHERE is_active = 1 AND difficulty = ? ORDER BY id')
+      .all(difficulty) as VocabWord[];
+  }
   return getDb()
     .prepare('SELECT * FROM vocabulary_words WHERE is_active = 1 ORDER BY id')
     .all() as VocabWord[];
@@ -98,16 +108,23 @@ export function insertWord(
   acceptedTranslations: string[] = [],
   exampleEn: string | null = null,
   exampleRu: string | null = null,
+  difficulty: VocabDifficulty = 'A1-A2',
 ): VocabWord {
   const db = getDb();
   const result = db.prepare(`
-    INSERT INTO vocabulary_words (english_word, russian_translation, accepted_translations, example_en, example_ru)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(englishWord, russianTranslation, JSON.stringify(acceptedTranslations), exampleEn, exampleRu);
+    INSERT INTO vocabulary_words (english_word, russian_translation, accepted_translations, example_en, example_ru, difficulty)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(englishWord, russianTranslation, JSON.stringify(acceptedTranslations), exampleEn, exampleRu, difficulty);
   return getWordById(result.lastInsertRowid as number)!;
 }
 
-export function countActiveWords(): number {
+export function countActiveWords(difficulty?: string): number {
+  if (difficulty) {
+    const row = getDb()
+      .prepare('SELECT COUNT(*) as cnt FROM vocabulary_words WHERE is_active = 1 AND difficulty = ?')
+      .get(difficulty) as { cnt: number };
+    return row.cnt;
+  }
   const row = getDb()
     .prepare('SELECT COUNT(*) as cnt FROM vocabulary_words WHERE is_active = 1')
     .get() as { cnt: number };
@@ -115,16 +132,20 @@ export function countActiveWords(): number {
 }
 
 /** Получить случайные слова для неправильных вариантов (исключая конкретные id) */
-export function getRandomWordsExcluding(excludeIds: number[], limit: number): VocabWord[] {
+export function getRandomWordsExcluding(excludeIds: number[], limit: number, difficulty?: string): VocabWord[] {
+  const db = getDb();
+  const diffClause = difficulty ? ' AND difficulty = ?' : '';
+  const diffParams = difficulty ? [difficulty] : [];
+
   if (excludeIds.length === 0) {
-    return getDb()
-      .prepare('SELECT * FROM vocabulary_words WHERE is_active = 1 ORDER BY RANDOM() LIMIT ?')
-      .all(limit) as VocabWord[];
+    return db
+      .prepare(`SELECT * FROM vocabulary_words WHERE is_active = 1${diffClause} ORDER BY RANDOM() LIMIT ?`)
+      .all(...diffParams, limit) as VocabWord[];
   }
   const placeholders = excludeIds.map(() => '?').join(',');
-  return getDb()
-    .prepare(`SELECT * FROM vocabulary_words WHERE is_active = 1 AND id NOT IN (${placeholders}) ORDER BY RANDOM() LIMIT ?`)
-    .all(...excludeIds, limit) as VocabWord[];
+  return db
+    .prepare(`SELECT * FROM vocabulary_words WHERE is_active = 1${diffClause} AND id NOT IN (${placeholders}) ORDER BY RANDOM() LIMIT ?`)
+    .all(...diffParams, ...excludeIds, limit) as VocabWord[];
 }
 
 // ─── Прогресс пользователя по словам ─────────────────────────────────────────
@@ -136,7 +157,18 @@ export function getUserVocab(telegramId: number, wordId: number): UserVocab | un
 }
 
 /** Получить все слова, которые пользователь уже видел */
-export function getSeenWordIds(telegramId: number): number[] {
+export function getSeenWordIds(telegramId: number, difficulty?: string): number[] {
+  if (difficulty) {
+    const rows = getDb()
+      .prepare(`
+        SELECT uv.word_id
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ? AND vw.difficulty = ?
+      `)
+      .all(telegramId, difficulty) as Array<{ word_id: number }>;
+    return rows.map((r) => r.word_id);
+  }
   const rows = getDb()
     .prepare('SELECT word_id FROM user_vocabulary WHERE telegram_id = ?')
     .all(telegramId) as Array<{ word_id: number }>;
@@ -144,7 +176,18 @@ export function getSeenWordIds(telegramId: number): number[] {
 }
 
 /** Получить слова, которые пользователь видел но ещё не усвоил */
-export function getUnmasteredSeenWordIds(telegramId: number): number[] {
+export function getUnmasteredSeenWordIds(telegramId: number, difficulty?: string): number[] {
+  if (difficulty) {
+    const rows = getDb()
+      .prepare(`
+        SELECT uv.word_id
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ? AND uv.mastered = 0 AND vw.difficulty = ?
+      `)
+      .all(telegramId, difficulty) as Array<{ word_id: number }>;
+    return rows.map((r) => r.word_id);
+  }
   const rows = getDb()
     .prepare('SELECT word_id FROM user_vocabulary WHERE telegram_id = ? AND mastered = 0')
     .all(telegramId) as Array<{ word_id: number }>;
@@ -203,7 +246,23 @@ export function recordWordAnswer(
 }
 
 /** Слова с ошибками для повторения (приоритет: много ошибок + недавняя ошибка) */
-export function getErrorWordIds(telegramId: number, limit: number): number[] {
+export function getErrorWordIds(telegramId: number, limit: number, difficulty?: string): number[] {
+  if (difficulty) {
+    const rows = getDb()
+      .prepare(`
+        SELECT uv.word_id
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ?
+          AND uv.wrong_answers > 0
+          AND uv.mastered = 0
+          AND vw.difficulty = ?
+        ORDER BY uv.wrong_answers DESC, uv.last_attempt_at DESC
+        LIMIT ?
+      `)
+      .all(telegramId, difficulty, limit) as Array<{ word_id: number }>;
+    return rows.map((r) => r.word_id);
+  }
   const rows = getDb()
     .prepare(`
       SELECT uv.word_id
@@ -218,21 +277,54 @@ export function getErrorWordIds(telegramId: number, limit: number): number[] {
   return rows.map((r) => r.word_id);
 }
 
-export function countSeenWords(telegramId: number): number {
+export function countSeenWords(telegramId: number, difficulty?: string): number {
+  if (difficulty) {
+    const row = getDb()
+      .prepare(`
+        SELECT COUNT(*) as cnt
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ? AND vw.difficulty = ?
+      `)
+      .get(telegramId, difficulty) as { cnt: number };
+    return row.cnt;
+  }
   const row = getDb()
     .prepare('SELECT COUNT(*) as cnt FROM user_vocabulary WHERE telegram_id = ?')
     .get(telegramId) as { cnt: number };
   return row.cnt;
 }
 
-export function countMasteredWords(telegramId: number): number {
+export function countMasteredWords(telegramId: number, difficulty?: string): number {
+  if (difficulty) {
+    const row = getDb()
+      .prepare(`
+        SELECT COUNT(*) as cnt
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ? AND uv.mastered = 1 AND vw.difficulty = ?
+      `)
+      .get(telegramId, difficulty) as { cnt: number };
+    return row.cnt;
+  }
   const row = getDb()
     .prepare('SELECT COUNT(*) as cnt FROM user_vocabulary WHERE telegram_id = ? AND mastered = 1')
     .get(telegramId) as { cnt: number };
   return row.cnt;
 }
 
-export function countErrorWords(telegramId: number): number {
+export function countErrorWords(telegramId: number, difficulty?: string): number {
+  if (difficulty) {
+    const row = getDb()
+      .prepare(`
+        SELECT COUNT(*) as cnt
+        FROM user_vocabulary uv
+        JOIN vocabulary_words vw ON vw.id = uv.word_id
+        WHERE uv.telegram_id = ? AND uv.wrong_answers > 0 AND uv.mastered = 0 AND vw.difficulty = ?
+      `)
+      .get(telegramId, difficulty) as { cnt: number };
+    return row.cnt;
+  }
   const row = getDb()
     .prepare('SELECT COUNT(*) as cnt FROM user_vocabulary WHERE telegram_id = ? AND wrong_answers > 0 AND mastered = 0')
     .get(telegramId) as { cnt: number };
@@ -410,7 +502,21 @@ export function getTotalAnswerStats(telegramId: number): { total: number; correc
 }
 
 /** Слова, которые нужно повторить (ошибки), с деталями для прогресс-экрана */
-export function getWordsNeedingReview(telegramId: number, limit = 10): Array<{ word_id: number; english_word: string; russian_translation: string; wrong_answers: number }> {
+export function getWordsNeedingReview(
+  telegramId: number,
+  limit = 10,
+  difficulty?: string,
+): Array<{ word_id: number; english_word: string; russian_translation: string; wrong_answers: number }> {
+  if (difficulty) {
+    return getDb().prepare(`
+      SELECT uv.word_id, vw.english_word, vw.russian_translation, uv.wrong_answers
+      FROM user_vocabulary uv
+      JOIN vocabulary_words vw ON vw.id = uv.word_id
+      WHERE uv.telegram_id = ? AND uv.wrong_answers > 0 AND uv.mastered = 0 AND vw.difficulty = ?
+      ORDER BY uv.wrong_answers DESC
+      LIMIT ?
+    `).all(telegramId, difficulty, limit) as Array<{ word_id: number; english_word: string; russian_translation: string; wrong_answers: number }>;
+  }
   return getDb().prepare(`
     SELECT uv.word_id, vw.english_word, vw.russian_translation, uv.wrong_answers
     FROM user_vocabulary uv
@@ -443,7 +549,7 @@ export function getUserSettings(telegramId: number): VocabUserSettings {
 
 export function updateUserSettings(
   telegramId: number,
-  patch: Partial<Pick<VocabUserSettings, 'direction' | 'answer_mode' | 'alt_next'>>,
+  patch: Partial<Pick<VocabUserSettings, 'direction' | 'answer_mode' | 'alt_next' | 'difficulty'>>,
 ): void {
   const db = getDb();
   // Гарантируем запись
@@ -468,6 +574,10 @@ export function updateUserSettings(
   if (patch.alt_next !== undefined) {
     updates.push('alt_next = ?');
     values.push(patch.alt_next);
+  }
+  if (patch.difficulty !== undefined) {
+    updates.push('difficulty = ?');
+    values.push(patch.difficulty);
   }
 
   if (updates.length === 0) return;
