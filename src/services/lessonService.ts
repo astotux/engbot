@@ -65,7 +65,12 @@ export function checkStepAnswer(
   if (step.type === 'input') {
     const s = step as InputStep;
     const normalizedUser = normalizeAnswer(userAnswer);
-    const isCorrect = s.answerKey.some((key) => normalizeAnswer(key) === normalizedUser);
+    let isCorrect: boolean;
+    if (s.matchMode === 'startsWith') {
+      isCorrect = s.answerKey.some((key) => normalizedUser.startsWith(normalizeAnswer(key)));
+    } else {
+      isCorrect = s.answerKey.some((key) => normalizeAnswer(key) === normalizedUser);
+    }
     return {
       isCorrect,
       score: isCorrect ? 100 : 0,

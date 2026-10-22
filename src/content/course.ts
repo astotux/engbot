@@ -33,6 +33,8 @@ export interface InputStep {
   question: string;
   audioFile?: string;
   answerKey: string[];        // допустимые варианты (нормализуются)
+  /** 'exact' (по умолчанию) — точное совпадение, 'startsWith' — начинается с одного из вариантов */
+  matchMode?: 'exact' | 'startsWith';
   hint: string;
   explanation: string;
 }
@@ -104,6 +106,7 @@ export const LESSONS: Lesson[] = [
         type: 'input',
         question: '✏️ Как сказать по-английски: «Меня зовут [твоё имя]»?\n\nНапиши: <i>My name is ...</i>',
         answerKey: ['my name is'],
+        matchMode: 'startsWith',
         hint: 'Начни с "My name is" и добавь своё имя',
         explanation: '<b>My name is ...</b> — стандартная форма представления. Запомни эту фразу!',
       },
@@ -264,6 +267,7 @@ export const LESSONS: Lesson[] = [
         type: 'input',
         question: '✏️ Вставь правильную форму:\n«I ___ from Moscow.»',
         answerKey: ['am', "i am from moscow", "i'm from moscow"],
+        matchMode: 'startsWith' as const,
         hint: 'Только одна форма подходит для I',
         explanation: '<b>I am</b> (I\'m) — для «я» только <b>am</b>. Никаких других вариантов!',
       },
@@ -460,7 +464,8 @@ export const LESSONS: Lesson[] = [
       {
         type: 'input',
         question: '✏️ Напиши по-английски:\n«Мне 28 лет.»',
-        answerKey: ["i'm 28 years old", 'i am 28 years old', "i'm twenty-eight years old", 'i am twenty-eight years old'],
+        answerKey: ["i'm 28 years old", 'i am 28 years old', "i'm twenty-eight years old", 'i am twenty-eight years old', "i'm", 'i am'],
+        matchMode: 'startsWith' as const,
         hint: 'I\'m + число + years old',
         explanation: '<b>I\'m 28 years old.</b> или <b>I\'m twenty-eight.</b> — оба варианта правильные.',
       },
@@ -514,7 +519,8 @@ export const LESSONS: Lesson[] = [
       {
         type: 'input',
         question: '2. Переведи: «Привет! Меня зовут Миша. Мне 20 лет.»',
-        answerKey: ["hi! my name is misha. i'm 20", "hello! my name is misha. i'm 20 years old", "hi, my name is misha, i'm 20"],
+        answerKey: ["hi! my name is misha. i'm 20", "hello! my name is misha. i'm 20 years old", "hi, my name is misha, i'm 20", 'hi! my name is', 'hello! my name is', 'hi, my name is'],
+        matchMode: 'startsWith' as const,
         hint: 'Hi! My name is... I\'m...',
         explanation: '<b>Hi! My name is Misha. I\'m 20 years old.</b>',
       },
@@ -1595,7 +1601,8 @@ export const LESSONS: Lesson[] = [
       {
         type: 'input',
         question: '✏️ Исправь предложение:\n«I have 30 years old.»',
-        answerKey: ['i am 30 years old', "i'm 30 years old", 'i am 30'],
+        answerKey: ['i am 30 years old', "i'm 30 years old", 'i am 30', "i'm", 'i am'],
+        matchMode: 'startsWith' as const,
         hint: 'Возраст — через am/is/are, не have',
         explanation: '<b>I am 30 years old.</b> — в английском возраст выражается через to be, не have.',
       },
