@@ -277,35 +277,23 @@ async function processAndRespond(
 
   const { isCorrect, correctAnswer, word, nextQuestion, sessionDone, summary } = result;
 
-  if (isCorrect) {
-    await sendEphemeral(ctx, `✅ <b>Правильно!</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`, {
-      parse_mode: 'HTML',
-    });
-  } else {
-    await sendEphemeral(
-      ctx,
-      `❌ <b>Неверно.</b>\nПравильный ответ: <b>${correctAnswer}</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`,
-      { parse_mode: 'HTML' },
-    );
-  }
+  // Текст результата
+  const feedbackText = isCorrect
+    ? `✅ <b>Правильно!</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`
+    : `❌ <b>Неверно.</b>\nПравильный ответ: <b>${correctAnswer}</b>\n\n<i>${word.english_word} — ${word.russian_translation}</i>`;
 
   if (sessionDone && summary) {
-    // Небольшая задержка не нужна — просто отправляем итоги
+    // Показываем фидбек отдельно, потом итоги
+    await sendEphemeral(ctx, feedbackText, { parse_mode: 'HTML' });
     await sendSummary(ctx, summary);
     ctx.session.vocabSessionId = undefined;
     ctx.session.vocabAwaitingAnswer = undefined;
   } else if (nextQuestion) {
-    const questions = getSessionQuestions(sessionId);
-    const answeredCount = questions.filter((q) => q.status !== 'pending').length;
-    const totalQuestions = questions.length;
-    // Кнопка «Следующий»
-    await sendScreen(
-      ctx,
-      `Ответ принят. Нажми «Следующий» чтобы продолжить.`,
-      { reply_markup: nextQuestionKeyboard(sessionId, questionId) },
-    );
-    void answeredCount;
-    void totalQuestions;
+    // Объединяем фидбек и кнопку «Следующий» в одно сообщение
+    await sendScreen(ctx, feedbackText, {
+      parse_mode: 'HTML',
+      reply_markup: nextQuestionKeyboard(sessionId, questionId),
+    });
   }
 }
 
