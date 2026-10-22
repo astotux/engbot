@@ -5,9 +5,16 @@ import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 import { getBotInstance } from '../botInstance.js';
 import { notifyNewUser } from '../../services/notifyService.js';
+import { sendScreen, sendDocumentScreen, deletePrevious } from '../sendHelper.js';
+import { getCourseAccess } from '../../db/repositories/courseAccess.js';
 import fs from 'fs';
 import path from 'path';
 import { InputFile } from 'grammy';
+
+function hasCourseAccess(telegramId: number): boolean {
+  const access = getCourseAccess(telegramId);
+  return !!access && (access.status === 'active' || access.status === 'completed');
+}
 
 export async function handleStart(ctx: BotContext): Promise<void> {
   const user = ctx.from;
@@ -27,13 +34,19 @@ export async function handleStart(ctx: BotContext): Promise<void> {
 
   logger.info({ telegramId: user.id, isNew, source: startParam }, 'Пользователь /start');
 
+  const hasCourse = hasCourseAccess(user.id);
+
+  // Удаляем предыдущий экран (если есть)
+  await deletePrevious(ctx);
+
   if (isNew) {
-    await ctx.reply(
+    await sendScreen(
+      ctx,
       `👋 Привет, ${user.first_name || 'друг'}!\n\n` +
         `Я помогу тебе выучить базовый английский за 30 дней.\n\n` +
         `🎁 Начнём с бесплатного чек-листа — 50 самых нужных английских слов для начинающих.\n\n` +
         `А потом расскажу про полный курс из 30 уроков 📚`,
-      { reply_markup: mainMenuKeyboard() },
+      { reply_markup: mainMenuKeyboard(hasCourse) },
     );
     await sendFreeChecklist(ctx);
 
@@ -50,9 +63,10 @@ export async function handleStart(ctx: BotContext): Promise<void> {
       });
     }
   } else {
-    await ctx.reply(
-      `С возвращением, ${user.first_name || 'друг'}! 👋\n\nИспользуй меню ниже для навигации.`,
-      { reply_markup: mainMenuKeyboard() },
+    await sendScreen(
+      ctx,
+      `С возвращением, ${user.first_name || 'друг'}! 👋\n\nВыбери нужный раздел:`,
+      { reply_markup: mainMenuKeyboard(hasCourse) },
     );
   }
 }
@@ -62,7 +76,8 @@ export async function sendFreeChecklist(ctx: BotContext): Promise<void> {
 
   if (!fs.existsSync(checklistPath)) {
     logger.warn({ path: checklistPath }, 'PDF чек-лист не найден');
-    await ctx.reply(
+    await sendScreen(
+      ctx,
       '🎁 <b>Бесплатный чек-лист: 50 слов для начинающих</b>\n\n' +
         '1. Hello — привет\n2. Goodbye — пока\n3. Please — пожалуйста\n4. Thank you — спасибо\n5. Sorry — извините\n' +
         '6. Yes — да\n7. No — нет\n8. Good — хорошо\n9. Bad — плохо\n10. Water — вода\n' +
@@ -73,8 +88,12 @@ export async function sendFreeChecklist(ctx: BotContext): Promise<void> {
     return;
   }
 
-  await ctx.replyWithDocument(new InputFile(checklistPath, 'checklist-english-50-words.pdf'), {
-    caption: '🎁 Вот твой бесплатный чек-лист — 50 самых нужных английских слов!\n\nСохрани его и используй как шпаргалку.',
-    reply_markup: checklistKeyboard(),
-  });
+  await sendDocumentScreen(
+    ctx,
+    new InputFile(checklistPath, 'checklist-english-50-words.pdf'),
+    {
+      caption: '🎁 Вот твой бесплатный чек-лист — 50 самых нужных английских слов!\n\nСохрани его и используй как шпаргалку.',
+      reply_markup: checklistKeyboard(),
+    },
+  );
 }

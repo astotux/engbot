@@ -9,7 +9,6 @@ import {
   handleHelp,
   handleSupport,
   handleCancel,
-  handleTextButton,
   handleDisableReminders,
 } from './handlers/menuHandler.js';
 import { handleCourseInfo, handleBuyCourse, handleStartCourse } from './handlers/courseHandler.js';
@@ -25,6 +24,8 @@ import {
 import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse } from '../db/repositories/courseAccess.js';
 import { setUserBlocked } from '../db/repositories/users.js';
+import { mainMenuKeyboard } from './keyboards/mainMenu.js';
+import { sendScreen } from './sendHelper.js';
 
 export function createBot(): Bot<BotContext> {
   const bot = new Bot<BotContext>(config.botToken);
@@ -37,7 +38,7 @@ export function createBot(): Bot<BotContext> {
     await next();
   });
 
-  // ── Команды ────────────────────────────────────────────────────────────────
+  // ── Команды (оставляем для продвинутых пользователей, но UI через inline) ──
   bot.command('start', handleStart);
   bot.command('menu', handleMenu);
   bot.command('help', handleHelp);
@@ -53,20 +54,60 @@ export function createBot(): Bot<BotContext> {
 
   // ── Inline callbacks ───────────────────────────────────────────────────────
 
+  // Главное меню — универсальная кнопка «На главную»
+  bot.callbackQuery('main_menu', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const telegramId = ctx.from?.id;
+    const hasCourse = (() => {
+      if (!telegramId) return false;
+      const access = getCourseAccess(telegramId);
+      return !!access && (access.status === 'active' || access.status === 'completed');
+    })();
+    await sendScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
+      reply_markup: mainMenuKeyboard(hasCourse),
+    });
+  });
+
+  // Мой урок (inline-кнопка главного меню)
+  bot.callbackQuery('my_lesson', handleLesson);
+
+  // Мой прогресс (inline-кнопка главного меню)
+  bot.callbackQuery('my_progress', handleProgress);
+
+  // Поддержка (inline-кнопка главного меню)
+  bot.callbackQuery('support', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSupport(ctx);
+  });
+
   // Покупка курса
   bot.callbackQuery('buy_course', handleBuyCourse);
   bot.callbackQuery('show_course_info', handleCourseInfo);
   bot.callbackQuery('start_course', handleStartCourse);
+
+  // Бесплатный чек-лист
   bot.callbackQuery('show_checklist', async (ctx) => {
     await ctx.answerCallbackQuery();
     await sendFreeChecklist(ctx);
   });
+
+  // Программа курса
   bot.callbackQuery('show_program', async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(
+    const telegramId = ctx.from?.id;
+    const hasCourse = (() => {
+      if (!telegramId) return false;
+      const access = getCourseAccess(telegramId);
+      return !!access && (access.status === 'active' || access.status === 'completed');
+    })();
+    const { InlineKeyboard } = await import('grammy');
+    const kb = new InlineKeyboard().text('🏠 На главную', 'main_menu');
+    await sendScreen(
+      ctx,
       `📚 <b>Программа:</b>\n\nДни 1–7: Основы, to be, числа\nДни 8–14: Present Simple\nДни 15–21: Бытовые ситуации\nДни 22–30: Повторение и финал`,
-      { parse_mode: 'HTML' },
+      { parse_mode: 'HTML', reply_markup: kb },
     );
+    void hasCourse; // используется выше при необходимости
   });
 
   // Пауза/возобновление курса
@@ -74,13 +115,17 @@ export function createBot(): Bot<BotContext> {
     const id = ctx.from?.id; if (!id) return;
     await ctx.answerCallbackQuery();
     pauseCourse(id, true);
-    await ctx.reply('⏸ Обучение приостановлено. Напиши /lesson чтобы продолжить.');
+    await sendScreen(ctx, '⏸ Обучение приостановлено.', {
+      reply_markup: mainMenuKeyboard(true),
+    });
   });
   bot.callbackQuery('resume_course', async (ctx) => {
     const id = ctx.from?.id; if (!id) return;
     await ctx.answerCallbackQuery();
     pauseCourse(id, false);
-    await ctx.reply('▶️ Обучение возобновлено! Используй /lesson.');
+    await sendScreen(ctx, '▶️ Обучение возобновлено! Открой урок ниже.', {
+      reply_markup: mainMenuKeyboard(true),
+    });
   });
 
   // Управление напоминаниями
@@ -125,26 +170,37 @@ export function createBot(): Bot<BotContext> {
     if (!telegramId) return;
     const access = getCourseAccess(telegramId);
     if (!access || day > access.current_day) {
-      await ctx.reply('Этот урок ещё не доступен.');
+      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
       return;
     }
     const { getLessonByDay } = await import('../content/course.js');
+    const { InlineKeyboard } = await import('grammy');
     const lesson = getLessonByDay(day);
     if (!lesson) return;
-    await ctx.reply(`📖 <b>День ${lesson.day}: ${lesson.title}</b>\n\n/lesson — открыть урок`, { parse_mode: 'HTML' });
+    const kb = new InlineKeyboard()
+      .text('📖 Открыть этот урок', `open_lesson_${day}`)
+      .row()
+      .text('🏠 На главную', 'main_menu');
+    await sendScreen(
+      ctx,
+      `📖 <b>День ${lesson.day}: ${lesson.title}</b>`,
+      { parse_mode: 'HTML', reply_markup: kb },
+    );
   });
 
-  // ── Кнопки reply-клавиатуры ────────────────────────────────────────────────
-  bot.on('message:text', async (ctx, next) => {
-    const menuButtons = [
-      '🎁 Бесплатный чек-лист', '📚 Программа курса', '💳 Купить курс за 500 ₽',
-      '📖 Мой урок', '📊 Мой прогресс', '🆘 Поддержка',
-    ];
-    if (menuButtons.includes(ctx.message.text)) {
-      await handleTextButton(ctx);
-    } else {
-      await next();
+  // Открыть конкретный день урока
+  bot.callbackQuery(/^open_lesson_(\d+)$/, async (ctx) => {
+    const day = Number(ctx.match[1]);
+    await ctx.answerCallbackQuery();
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const access = getCourseAccess(telegramId);
+    if (!access || day > access.current_day) {
+      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
+      return;
     }
+    // Открываем урок через handleLesson
+    await handleLesson(ctx);
   });
 
   // ── Ответы пользователя на задания ────────────────────────────────────────
@@ -156,10 +212,33 @@ export function createBot(): Bot<BotContext> {
     }
   });
 
-  // ── Fallback ───────────────────────────────────────────────────────────────
+  // ── Fallback — любой текст не по контексту ─────────────────────────────────
+  bot.on('message:text', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    const hasCourse = (() => {
+      if (!telegramId) return false;
+      const access = getCourseAccess(telegramId);
+      return !!access && (access.status === 'active' || access.status === 'completed');
+    })();
+    await sendScreen(
+      ctx,
+      '🤔 Не понимаю это сообщение.\n\nИспользуй кнопки меню для навигации:',
+      { reply_markup: mainMenuKeyboard(hasCourse) },
+    );
+  });
+
+  // ── Fallback для прочих типов сообщений ───────────────────────────────────
   bot.on('message', async (ctx) => {
-    await ctx.reply(
-      '🤔 Не понимаю это сообщение.\n\nИспользуй /menu для навигации или /help для справки.',
+    const telegramId = ctx.from?.id;
+    const hasCourse = (() => {
+      if (!telegramId) return false;
+      const access = getCourseAccess(telegramId);
+      return !!access && (access.status === 'active' || access.status === 'completed');
+    })();
+    await sendScreen(
+      ctx,
+      '🤔 Используй кнопки меню для навигации:',
+      { reply_markup: mainMenuKeyboard(hasCourse) },
     );
   });
 

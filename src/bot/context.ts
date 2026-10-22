@@ -10,6 +10,8 @@ export interface SessionData {
   // Для платёжного флоу
   lastOrderId?: string;
   lastPaymentId?: string;
+  // ID последнего сообщения бота — для удаления перед отправкой нового
+  lastBotMessageId?: number;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

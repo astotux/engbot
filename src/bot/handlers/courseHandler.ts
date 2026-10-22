@@ -1,8 +1,9 @@
 import type { BotContext } from '../context.js';
 import { getCourseAccess, startCourse } from '../../db/repositories/courseAccess.js';
-import { courseInfoKeyboard } from '../keyboards/mainMenu.js';
+import { mainMenuKeyboard, courseInfoKeyboard } from '../keyboards/mainMenu.js';
 import { initiatePurchase } from '../../services/purchaseService.js';
 import { scheduleAllLessons } from '../../services/lessonService.js';
+import { sendScreen } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
 
@@ -34,20 +35,31 @@ export async function handleCourseInfo(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
+  // Если вызов из callback — отвечаем на него
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery();
+
   const access = getCourseAccess(telegramId);
 
   if (access && access.status !== 'revoked') {
     if (access.status === 'active' || access.status === 'completed') {
-      await ctx.reply('✅ У тебя уже есть доступ к курсу!\n\nИспользуй /lesson чтобы открыть урок.');
+      await sendScreen(
+        ctx,
+        '✅ У тебя уже есть доступ к курсу!\n\nВыбери нужный раздел:',
+        { reply_markup: mainMenuKeyboard(true) },
+      );
       return;
     }
     if (access.status === 'pending') {
-      await ctx.reply('⏳ Доступ к курсу обрабатывается. Как только оплата подтвердится, ты получишь уведомление.');
+      await sendScreen(
+        ctx,
+        '⏳ Доступ к курсу обрабатывается. Как только оплата подтвердится, ты получишь уведомление.',
+        { reply_markup: mainMenuKeyboard(false) },
+      );
       return;
     }
   }
 
-  await ctx.reply(COURSE_DESCRIPTION, {
+  await sendScreen(ctx, COURSE_DESCRIPTION, {
     parse_mode: 'HTML',
     reply_markup: courseInfoKeyboard(),
   });
@@ -64,23 +76,32 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
 
   const access = getCourseAccess(telegramId);
   if (access && (access.status === 'active' || access.status === 'completed')) {
-    await ctx.reply('✅ У тебя уже есть доступ к курсу! Используй /lesson.');
+    await sendScreen(
+      ctx,
+      '✅ У тебя уже есть доступ к курсу!\n\nВыбери нужный раздел:',
+      { reply_markup: mainMenuKeyboard(true) },
+    );
     return;
   }
 
   if (!config.yookassa.enabled) {
-    await ctx.reply('⚠️ Оплата временно недоступна. Обратитесь в поддержку /support.');
+    await sendScreen(
+      ctx,
+      '⚠️ Оплата временно недоступна. Обратись в поддержку.',
+      { reply_markup: mainMenuKeyboard(false) },
+    );
     return;
   }
 
-  await ctx.reply('⏳ Создаю ссылку на оплату...');
+  await sendScreen(ctx, '⏳ Создаю ссылку на оплату...');
 
   try {
     const { paymentUrl, paymentId, orderId } = await initiatePurchase(telegramId);
     ctx.session.lastPaymentId = paymentId;
     ctx.session.lastOrderId = orderId;
 
-    await ctx.reply(
+    await sendScreen(
+      ctx,
       `💳 <b>Оплата курса «Английский за 30 дней»</b>\n\n` +
         `Сумма: <b>${config.coursePriceRub} ₽</b>\n\n` +
         `Нажми кнопку ниже, чтобы перейти к оплате. После успешной оплаты доступ откроется автоматически.\n\n` +
@@ -88,14 +109,21 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
       {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: [[{ text: '💳 Перейти к оплате', url: paymentUrl }]],
+          inline_keyboard: [
+            [{ text: '💳 Перейти к оплате', url: paymentUrl }],
+            [{ text: '🏠 На главную', callback_data: 'main_menu' }],
+          ],
         },
       },
     );
     logger.info({ telegramId, paymentId }, 'Ссылка на оплату отправлена');
   } catch (err) {
     logger.error({ err, telegramId }, 'Ошибка создания платежа');
-    await ctx.reply('❌ Не удалось создать платёж. Попробуй позже или обратись в поддержку /support.');
+    await sendScreen(
+      ctx,
+      '❌ Не удалось создать платёж. Попробуй позже или обратись в поддержку.',
+      { reply_markup: mainMenuKeyboard(false) },
+    );
   }
 }
 
@@ -107,18 +135,26 @@ export async function handleStartCourse(ctx: BotContext): Promise<void> {
 
   const access = getCourseAccess(telegramId);
   if (!access || access.status !== 'pending') {
-    await ctx.reply('Курс уже начат или недоступен.');
+    await sendScreen(
+      ctx,
+      'Курс уже начат или недоступен.',
+      { reply_markup: mainMenuKeyboard(access?.status === 'active' || access?.status === 'completed') },
+    );
     return;
   }
 
   startCourse(telegramId);
   scheduleAllLessons(telegramId);
 
-  await ctx.reply(
+  await sendScreen(
+    ctx,
     `🚀 <b>Обучение началось!</b>\n\n` +
       `Каждый день в ${String(config.lessonSendHour).padStart(2, '0')}:${String(config.lessonSendMinute).padStart(2, '0')} (МСК) ты будешь получать новый урок.\n\n` +
-      `Первый урок уже ждёт тебя — нажми /lesson`,
-    { parse_mode: 'HTML' },
+      `Первый урок уже ждёт тебя — нажми «📖 Мой урок» в меню ниже!`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: mainMenuKeyboard(true),
+    },
   );
   logger.info({ telegramId }, 'Курс начат пользователем');
 }
