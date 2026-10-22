@@ -24,9 +24,15 @@ async function main(): Promise<void> {
   await processOutbox(bot);
 
   if (config.webhook.enabled && config.isProduction) {
-    const webhookUrl = `${config.webhook.baseUrl}/webhook/telegram/${config.webhook.pathSecret}`;
-    await bot.api.setWebhook(webhookUrl);
-    logger.info({ webhookUrl }, 'Telegram webhook установлен');
+    // Если SKIP_WEBHOOK_SETUP=true — не вызываем setWebhook (webhook уже зарегистрирован вручную)
+    if (process.env['SKIP_WEBHOOK_SETUP'] !== 'true') {
+      const webhookUrl = `${config.webhook.baseUrl}/webhook/telegram/${config.webhook.pathSecret}`;
+      await bot.api.setWebhook(webhookUrl);
+      logger.info({ webhookUrl }, 'Telegram webhook установлен');
+    } else {
+      logger.info('Пропускаем setWebhook (SKIP_WEBHOOK_SETUP=true)');
+    }
+    logger.info('Бот запущен в webhook-режиме');
   } else {
     await bot.api.deleteWebhook();
     logger.info('Запуск в режиме long polling');
