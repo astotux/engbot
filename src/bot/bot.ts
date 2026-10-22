@@ -16,15 +16,14 @@ import { handleCourseInfo, handleBuyCourse, handleStartCourse } from './handlers
 import {
   handleLesson,
   handleProgress,
-  handleAnswerCallback,
   handleUserAnswer,
-  formatLessonMessage,
+  handleChoiceCallback,
+  handleNextStep,
+  handleHintCallback,
+  handleLessonDone,
 } from './handlers/lessonHandler.js';
 import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse } from '../db/repositories/courseAccess.js';
-import { getSubmission } from '../db/repositories/lessons.js';
-import { getLessonByDay } from '../content/course.js';
-import { lessonKeyboard } from './keyboards/mainMenu.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 
 export function createBot(): Bot<BotContext> {
@@ -34,13 +33,11 @@ export function createBot(): Bot<BotContext> {
 
   // Сбрасываем флаг блокировки при любом входящем сообщении
   bot.use(async (ctx, next) => {
-    if (ctx.from?.id) {
-      setUserBlocked(ctx.from.id, false);
-    }
+    if (ctx.from?.id) setUserBlocked(ctx.from.id, false);
     await next();
   });
 
-  // Команды
+  // ── Команды ────────────────────────────────────────────────────────────────
   bot.command('start', handleStart);
   bot.command('menu', handleMenu);
   bot.command('help', handleHelp);
@@ -50,56 +47,77 @@ export function createBot(): Bot<BotContext> {
   bot.command('lesson', handleLesson);
   bot.command('progress', handleProgress);
 
-  // Административные команды
-  const adminCommands = [
-    'admin_stats', 'admin_user', 'admin_grant', 'admin_revoke',
-    'admin_lesson', 'admin_msg', 'admin_audit', 'admin_help',
-  ];
-  for (const cmd of adminCommands) {
+  for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_help']) {
     bot.command(cmd, handleAdminCommand);
   }
 
-  // Inline callbacks
+  // ── Inline callbacks ───────────────────────────────────────────────────────
+
+  // Покупка курса
   bot.callbackQuery('buy_course', handleBuyCourse);
   bot.callbackQuery('show_course_info', handleCourseInfo);
-  bot.callbackQuery('show_program', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.reply(
-      `📚 <b>Программа курса:</b>\n\nДни 1–7: Основы, приветствия, to be\nДни 8–14: Present Simple\nДни 15–21: Бытовые ситуации\nДни 22–30: Повторение и тесты`,
-      { parse_mode: 'HTML' },
-    );
-  });
   bot.callbackQuery('start_course', handleStartCourse);
-  bot.callbackQuery('cancel', handleCancel);
-  bot.callbackQuery('disable_reminders', handleDisableReminders);
   bot.callbackQuery('show_checklist', async (ctx) => {
     await ctx.answerCallbackQuery();
     await sendFreeChecklist(ctx);
   });
-
-  bot.callbackQuery('pause_course', async (ctx) => {
-    const telegramId = ctx.from?.id;
-    if (!telegramId) return;
+  bot.callbackQuery('show_program', async (ctx) => {
     await ctx.answerCallbackQuery();
-    pauseCourse(telegramId, true);
-    await ctx.reply('⏸ Обучение приостановлено. Напиши /lesson чтобы продолжить.');
+    await ctx.reply(
+      `📚 <b>Программа:</b>\n\nДни 1–7: Основы, to be, числа\nДни 8–14: Present Simple\nДни 15–21: Бытовые ситуации\nДни 22–30: Повторение и финал`,
+      { parse_mode: 'HTML' },
+    );
   });
 
-  bot.callbackQuery('resume_course', async (ctx) => {
-    const telegramId = ctx.from?.id;
-    if (!telegramId) return;
+  // Пауза/возобновление курса
+  bot.callbackQuery('pause_course', async (ctx) => {
+    const id = ctx.from?.id; if (!id) return;
     await ctx.answerCallbackQuery();
-    pauseCourse(telegramId, false);
+    pauseCourse(id, true);
+    await ctx.reply('⏸ Обучение приостановлено. Напиши /lesson чтобы продолжить.');
+  });
+  bot.callbackQuery('resume_course', async (ctx) => {
+    const id = ctx.from?.id; if (!id) return;
+    await ctx.answerCallbackQuery();
+    pauseCourse(id, false);
     await ctx.reply('▶️ Обучение возобновлено! Используй /lesson.');
   });
 
-  // Ответ на урок
-  bot.callbackQuery(/^answer_day_(\d+)$/, async (ctx) => {
-    const day = Number(ctx.match[1]);
-    await handleAnswerCallback(ctx, day);
+  // Управление напоминаниями
+  bot.callbackQuery('disable_reminders', handleDisableReminders);
+  bot.callbackQuery('cancel', handleCancel);
+
+  // ── Навигация по шагам урока ───────────────────────────────────────────────
+
+  // choice:day:stepIndex:chosenIndex
+  bot.callbackQuery(/^choice:(\d+):(\d+):(\d+)$/, async (ctx) => {
+    const match = ctx.match as RegExpMatchArray;
+    const day = Number(match[1]);
+    const stepIndex = Number(match[2]);
+    const chosenIndex = Number(match[3]);
+    await handleChoiceCallback(ctx, day, stepIndex, chosenIndex);
   });
 
-  // Навигация по урокам
+  // nextstep:day:stepIndex
+  bot.callbackQuery(/^nextstep:(\d+):(\d+)$/, async (ctx) => {
+    const match = ctx.match as RegExpMatchArray;
+    const day = Number(match[1]);
+    const stepIndex = Number(match[2]);
+    await handleNextStep(ctx, day, stepIndex);
+  });
+
+  // hint:day:stepIndex
+  bot.callbackQuery(/^hint:(\d+):(\d+)$/, async (ctx) => {
+    const match = ctx.match as RegExpMatchArray;
+    const day = Number(match[1]);
+    const stepIndex = Number(match[2]);
+    await handleHintCallback(ctx, day, stepIndex);
+  });
+
+  // Завершение урока
+  bot.callbackQuery('lessonDone', handleLessonDone);
+
+  // Навигация к прошлому уроку
   bot.callbackQuery(/^lesson_day_(\d+)$/, async (ctx) => {
     const day = Number(ctx.match[1]);
     await ctx.answerCallbackQuery();
@@ -110,16 +128,13 @@ export function createBot(): Bot<BotContext> {
       await ctx.reply('Этот урок ещё не доступен.');
       return;
     }
+    const { getLessonByDay } = await import('../content/course.js');
     const lesson = getLessonByDay(day);
     if (!lesson) return;
-    const hasAnswer = !!getSubmission(telegramId, day);
-    await ctx.reply(formatLessonMessage(lesson), {
-      parse_mode: 'HTML',
-      reply_markup: lessonKeyboard(day, hasAnswer),
-    });
+    await ctx.reply(`📖 <b>День ${lesson.day}: ${lesson.title}</b>\n\n/lesson — открыть урок`, { parse_mode: 'HTML' });
   });
 
-  // Кнопки reply-клавиатуры
+  // ── Кнопки reply-клавиатуры ────────────────────────────────────────────────
   bot.on('message:text', async (ctx, next) => {
     const menuButtons = [
       '🎁 Бесплатный чек-лист', '📚 Программа курса', '💳 Купить курс за 500 ₽',
@@ -132,23 +147,24 @@ export function createBot(): Bot<BotContext> {
     }
   });
 
-  // Обработка ответов на задания
+  // ── Ответы пользователя на задания ────────────────────────────────────────
   bot.on('message:text', async (ctx, next) => {
-    if (ctx.session.awaitingAnswer) {
+    if (ctx.session.awaitingStep) {
       await handleUserAnswer(ctx);
     } else {
       await next();
     }
   });
 
-  // Fallback
+  // ── Fallback ───────────────────────────────────────────────────────────────
   bot.on('message', async (ctx) => {
-    await ctx.reply('🤔 Не понимаю это сообщение.\n\nИспользуй /menu для навигации или /help для справки.');
+    await ctx.reply(
+      '🤔 Не понимаю это сообщение.\n\nИспользуй /menu для навигации или /help для справки.',
+    );
   });
 
   bot.catch((err) => {
-    const { ctx, error } = err;
-    logger.error({ error, update: ctx.update }, 'Необработанная ошибка бота');
+    logger.error({ error: err.error, update: err.ctx.update }, 'Необработанная ошибка бота');
   });
 
   return bot;

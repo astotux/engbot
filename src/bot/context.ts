@@ -1,7 +1,13 @@
 import type { Context, SessionFlavor } from 'grammy';
 
 export interface SessionData {
-  awaitingAnswer?: number; // day number
+  // Ожидание ответа на шаг
+  awaitingStep?: {
+    day: number;
+    stepIndex: number;
+    type: 'input' | 'free';
+  };
+  // Для платёжного флоу
   lastOrderId?: string;
   lastPaymentId?: string;
 }

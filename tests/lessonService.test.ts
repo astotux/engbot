@@ -11,69 +11,77 @@ vi.mock('../src/config/index.js', () => ({
     databasePath: ':memory:', freeChecklistPath: '', coursePriceRub: 500,
     coursePriceKopecks: 50000, courseTimezone: 'Europe/Moscow',
     lessonSendHour: 10, lessonSendMinute: 0, botToken: 'test', botUsername: 'testbot',
-    adminIds: [999], yookassa: { enabled: false, shopId: '', secretKey: '', returnUrl: '' },
-    webhook: { enabled: false, baseUrl: '', pathSecret: '' },
+    adminIds: [999], yookassa: { enabled: false }, webhook: { enabled: false },
   },
 }));
-vi.mock('../src/utils/logger.js', () => ({ logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } }));
+vi.mock('../src/utils/logger.js', () => ({
+  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+}));
 
 const { upsertUser } = await import('../src/db/repositories/users.js');
 const { createCourseAccess, startCourse } = await import('../src/db/repositories/courseAccess.js');
-const { scheduleLessonDelivery, getPendingDeliveries, getLessonDelivery } = await import('../src/db/repositories/lessons.js');
-const { checkAnswer, processSubmission, getUserProgress, scheduleAllLessons } = await import('../src/services/lessonService.js');
+const { scheduleLessonDelivery, getPendingDeliveries, markLessonSent, getLessonDelivery } = await import('../src/db/repositories/lessons.js');
+const { checkStepAnswer, checkChoiceAnswer, scheduleAllLessons, getUserProgress, getOrInitStepProgress, markStepDone } = await import('../src/services/lessonService.js');
 
-describe('LessonService — checkAnswer', () => {
-  it('правильный ответ принимается', () => {
-    const result = checkAnswer(2, 'He');
+describe('checkStepAnswer', () => {
+  it('принимает правильный input-ответ', () => {
+    // День 3, шаг 3: input с answerKey ['am', 'i am from moscow', "i'm from moscow"]
+    const result = checkStepAnswer(3, 3, 'am');
     expect(result.isCorrect).toBe(true);
   });
 
-  it('ответ нечувствителен к регистру', () => {
-    const result = checkAnswer(2, 'he');
+  it('нечувствителен к регистру', () => {
+    const result = checkStepAnswer(3, 3, 'AM');
     expect(result.isCorrect).toBe(true);
   });
 
-  it('ответ нечувствителен к лишним пробелам', () => {
-    const result = checkAnswer(2, '  He  ');
+  it('нечувствителен к лишним пробелам', () => {
+    const result = checkStepAnswer(3, 3, '  am  ');
     expect(result.isCorrect).toBe(true);
   });
 
-  it('неправильный ответ отвергается', () => {
-    const result = checkAnswer(2, 'She');
+  it('принимает полный вариант ответа', () => {
+    const result = checkStepAnswer(3, 3, "I'm from Moscow.");
+    expect(result.isCorrect).toBe(true);
+  });
+
+  it('отклоняет неверный ответ', () => {
+    const result = checkStepAnswer(3, 3, 'are');
     expect(result.isCorrect).toBe(false);
   });
 
-  it('свободный ответ (нет answerKey) принимается как null', () => {
-    // день 20 — свободный ответ
-    const result = checkAnswer(20, 'My mother is kind');
-    expect(result.isCorrect).toBeNull();
-  });
-
-  it('несуществующий урок возвращает null', () => {
-    const result = checkAnswer(99, 'anything');
+  it('свободный ответ возвращает isCorrect=null', () => {
+    // День 1, шаг 5 — free
+    const result = checkStepAnswer(1, 5, 'любой текст');
     expect(result.isCorrect).toBeNull();
   });
 });
 
-describe('LessonService — processSubmission', () => {
-  beforeEach(() => {
-    testDb = createTestDb();
-    upsertUser({ telegram_id: 500 });
-  });
-
-  it('сохраняет ответ пользователя', async () => {
-    const result = await processSubmission(500, 2, 'He');
-    expect(result.saved).toBe(true);
+describe('checkChoiceAnswer', () => {
+  it('принимает правильный выбор', () => {
+    // День 1, шаг 1 (choice: correctIndex=1 "Hi")
+    const result = checkChoiceAnswer(1, 1, 1);
     expect(result.isCorrect).toBe(true);
   });
 
-  it('отклоняет слишком длинный ответ', async () => {
-    const result = await processSubmission(500, 2, 'a'.repeat(1001));
-    expect(result.saved).toBe(false);
+  it('отклоняет неверный выбор', () => {
+    const result = checkChoiceAnswer(1, 1, 0);
+    expect(result.isCorrect).toBe(false);
+  });
+
+  it('возвращает подсказку при неверном ответе', () => {
+    const result = checkChoiceAnswer(1, 1, 0);
+    expect(result.hint).toBeTruthy();
+    expect(result.explanation).toBe('');
+  });
+
+  it('возвращает объяснение при правильном ответе', () => {
+    const result = checkChoiceAnswer(1, 1, 1);
+    expect(result.explanation).toBeTruthy();
   });
 });
 
-describe('LessonService — scheduleAllLessons', () => {
+describe('scheduleAllLessons', () => {
   beforeEach(() => {
     testDb = createTestDb();
     upsertUser({ telegram_id: 600 });
@@ -81,33 +89,38 @@ describe('LessonService — scheduleAllLessons', () => {
     startCourse(600);
   });
 
-  it('планирует 30 уроков после старта', () => {
+  it('планирует уроки после старта', () => {
     scheduleAllLessons(600);
-    // Первый урок должен быть запланирован
     const d1 = getLessonDelivery(600, 1);
     expect(d1).toBeTruthy();
     expect(d1?.status).toBe('pending');
   });
 
-  it('не планирует уроки дважды (идемпотентность)', () => {
+  it('не создаёт дубликаты при повторном вызове', () => {
     scheduleAllLessons(600);
-    scheduleAllLessons(600); // второй вызов
-
+    scheduleAllLessons(600);
     const d1 = getLessonDelivery(600, 1);
-    // Не должно быть дубликатов — UNIQUE constraint
     expect(d1).toBeTruthy();
+  });
+
+  it('не меняет sent на pending при повторном вызове', () => {
+    const past = new Date(Date.now() - 60000).toISOString();
+    scheduleLessonDelivery(600, 1, past);
+    markLessonSent(600, 1);
+    scheduleAllLessons(600);
+    const d = getLessonDelivery(600, 1);
+    expect(d?.status).toBe('sent');
   });
 });
 
-describe('LessonService — getUserProgress', () => {
+describe('getUserProgress', () => {
   beforeEach(() => {
     testDb = createTestDb();
     upsertUser({ telegram_id: 700 });
   });
 
   it('возвращает null если курса нет', () => {
-    const p = getUserProgress(700);
-    expect(p).toBeNull();
+    expect(getUserProgress(700)).toBeNull();
   });
 
   it('возвращает прогресс после начала курса', () => {
@@ -118,5 +131,28 @@ describe('LessonService — getUserProgress', () => {
     expect(p?.currentDay).toBe(1);
     expect(p?.completedCount).toBe(0);
     expect(p?.percent).toBe(0);
+  });
+});
+
+describe('getOrInitStepProgress + markStepDone', () => {
+  beforeEach(() => {
+    testDb = createTestDb();
+    upsertUser({ telegram_id: 800 });
+    createCourseAccess(800, null);
+    startCourse(800);
+  });
+
+  it('инициализирует прогресс с шага 0', () => {
+    const prog = getOrInitStepProgress(800, 1);
+    expect(prog.step_index).toBe(0);
+    expect(JSON.parse(prog.completed_steps)).toEqual([]);
+  });
+
+  it('отмечает шаг как пройденный', () => {
+    getOrInitStepProgress(800, 1);
+    markStepDone(800, 1, 0);
+    const prog = getOrInitStepProgress(800, 1);
+    const completed = JSON.parse(prog.completed_steps) as number[];
+    expect(completed).toContain(0);
   });
 });
