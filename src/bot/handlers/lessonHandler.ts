@@ -11,7 +11,15 @@ import {
   getOrInitStepProgress,
   markStepDone,
 } from '../../services/lessonService.js';
-import { getStep, getTotalSteps, type ExplainStep, type ChoiceStep, type InputStep, type FreeStep } from '../../content/course.js';
+import {
+  getStep,
+  getTotalSteps,
+  type ExplainStep,
+  type ChoiceStep,
+  type InputStep,
+  type FreeStep,
+  type LessonStep,
+} from '../../content/course.js';
 import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
 import { sendScreen, sendEphemeral } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
@@ -79,6 +87,49 @@ export function formatLessonMessage(lesson: { day: number; title: string; estima
   );
 }
 
+// ─── Отправка медиафайлов шага (аудио MP3 или кружок MP4) ────────────────────
+
+export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<void> {
+  const sentPaths = new Set<string>();
+
+  const sendFile = async (filePath: string, explicitType?: 'voice' | 'video_note'): Promise<void> => {
+    const resolvedPath = path.resolve(filePath);
+    if (sentPaths.has(resolvedPath)) return;
+    if (!fs.existsSync(resolvedPath)) return;
+
+    sentPaths.add(resolvedPath);
+
+    const ext = path.extname(resolvedPath).toLowerCase();
+    const isAudio = ext === '.mp3' || ext === '.ogg' || ext === '.oga' || ext === '.m4a' || ext === '.wav';
+    const mediaType = explicitType ?? step.mediaType ?? (isAudio ? 'voice' : 'video_note');
+
+    try {
+      if (mediaType === 'voice') {
+        await ctx.replyWithVoice(new InputFile(resolvedPath));
+      } else {
+        await ctx.replyWithVideoNote(new InputFile(resolvedPath));
+      }
+    } catch (err) {
+      logger.warn({ err, resolvedPath, mediaType }, 'Не удалось отправить медиафайл шага');
+    }
+  };
+
+  // 1. Явное голосовое сообщение (.mp3, .ogg)
+  if ('voiceFile' in step && step.voiceFile) {
+    await sendFile(step.voiceFile, 'voice');
+  }
+
+  // 2. Явный видео-кружок (.mp4)
+  if ('videoNoteFile' in step && step.videoNoteFile) {
+    await sendFile(step.videoNoteFile, 'video_note');
+  }
+
+  // 3. Общее поле audioFile (автоопределение по расширению или mediaType)
+  if ('audioFile' in step && step.audioFile) {
+    await sendFile(step.audioFile);
+  }
+}
+
 // ─── Отправка шага ────────────────────────────────────────────────────────────
 
 async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promise<void> {
@@ -86,17 +137,9 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   const total = getTotalSteps(day);
   if (!step) return;
 
-  // Отправляем аудио-кружок если есть (не считается «экраном» — не удаляем предыдущее)
-  if ('audioFile' in step && step.audioFile) {
-    const audioPath = path.resolve(step.audioFile);
-    if (fs.existsSync(audioPath)) {
-      try {
-        await ctx.replyWithVideoNote(new InputFile(audioPath));
-      } catch (err) {
-        logger.warn({ err, audioPath }, 'Не удалось отправить аудио-кружок');
-      }
-    }
-  }
+  // Отправляем медиафайлы шага: mp3 (голосовое сообщение) или mp4 (видео-кружок)
+  // (не считается «экраном» — не удаляем предыдущее)
+  await sendStepMedia(ctx, step);
 
   // Отправляем PDF для дня (только на первом шаге) — тоже не считается «экраном»
   if (stepIndex === 0) {

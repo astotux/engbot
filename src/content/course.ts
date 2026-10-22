@@ -11,16 +11,25 @@ export interface ExplainStep {
   title: string;
   text: string;
   examples?: Example[];
-  /** Путь к аудио-файлу для кружка (video_note). Например assets/audio/day1_step1.mp4 */
+  /** Путь к медиа-файлу: .mp4 (кружок video_note) или .mp3/.ogg (голосовое сообщение voice) */
   audioFile?: string;
+  /** Явное указание голосового сообщения (.mp3, .ogg) */
+  voiceFile?: string;
+  /** Явное указание видео-кружка (.mp4) */
+  videoNoteFile?: string;
+  /** Принудительный тип медиа */
+  mediaType?: 'voice' | 'video_note';
 }
 
 /** Шаг типа «выбор из вариантов» — inline-кнопки */
 export interface ChoiceStep {
   type: 'choice';
   question: string;
-  /** Аудио-кружок с вопросом — пользователь слушает и выбирает */
+  /** Аудио/видео к вопросу (.mp4 — кружок, .mp3/.ogg — голосовое сообщение) */
   audioFile?: string;
+  voiceFile?: string;
+  videoNoteFile?: string;
+  mediaType?: 'voice' | 'video_note';
   options: string[];          // варианты ответа
   correctIndex: number;       // индекс правильного
   hint: string;               // короткая подсказка без ответа
@@ -32,6 +41,9 @@ export interface InputStep {
   type: 'input';
   question: string;
   audioFile?: string;
+  voiceFile?: string;
+  videoNoteFile?: string;
+  mediaType?: 'voice' | 'video_note';
   answerKey: string[];        // допустимые варианты (нормализуются)
   /** 'exact' (по умолчанию) — точное совпадение, 'startsWith' — начинается с одного из вариантов */
   matchMode?: 'exact' | 'startsWith';
@@ -44,6 +56,9 @@ export interface FreeStep {
   type: 'free';
   question: string;
   audioFile?: string;
+  voiceFile?: string;
+  videoNoteFile?: string;
+  mediaType?: 'voice' | 'video_note';
   exampleAnswer: string;
   tip: string;
 }
