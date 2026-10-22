@@ -47,7 +47,7 @@ export function createBot(): Bot<BotContext> {
   bot.command('lesson', handleLesson);
   bot.command('progress', handleProgress);
 
-  for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_help']) {
+  for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_report', 'admin_help']) {
     bot.command(cmd, handleAdminCommand);
   }
 

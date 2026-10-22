@@ -14,7 +14,10 @@ import {
   markWebhookProcessed,
   isWebhookProcessed,
 } from '../db/repositories/webhookEvents.js';
+import { getUserByTelegramId } from '../db/repositories/users.js';
 import { createYookassaPayment, getYookassaPayment, parseWebhookPayload } from '../payments/yookassa.js';
+import { getBotInstance } from '../bot/botInstance.js';
+import { notifyPurchase } from './notifyService.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -125,7 +128,6 @@ async function handlePaymentSucceeded(yookassaId: string): Promise<void> {
 
     const access = createCourseAccess(payment.telegram_id, payment.order_id);
     if (access) {
-      // Добавляем событие в outbox для отправки сообщения пользователю
       addOutboxEvent('course_access_granted', {
         telegramId: payment.telegram_id,
         orderId: payment.order_id,
@@ -135,6 +137,20 @@ async function handlePaymentSucceeded(yookassaId: string): Promise<void> {
       logger.warn({ telegramId: payment.telegram_id }, 'Доступ уже существует (повторный webhook)');
     }
   })();
+
+  // Уведомляем администраторов о покупке (вне транзакции)
+  const user = getUserByTelegramId(payment.telegram_id);
+  const bot = getBotInstance();
+  if (bot) {
+    void notifyPurchase(bot, {
+      telegramId: payment.telegram_id,
+      firstName: user?.first_name ?? null,
+      lastName: user?.last_name ?? null,
+      username: user?.username ?? null,
+      amountRub: config.coursePriceRub,
+      orderId: payment.order_id,
+    });
+  }
 }
 
 async function handlePaymentCanceled(yookassaId: string): Promise<void> {

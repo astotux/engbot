@@ -13,7 +13,9 @@ import {
 import { logAdminAction, getRecentAuditLogs } from '../db/repositories/adminAudit.js';
 import { getLessonByDay } from '../content/course.js';
 import { formatLessonMessage } from '../bot/handlers/lessonHandler.js';
+import { generateReport, cleanupReport } from '../services/reportService.js';
 import { logger } from '../utils/logger.js';
+import { InputFile } from 'grammy';
 
 function isAdmin(telegramId: number): boolean {
   return config.adminIds.includes(telegramId);
@@ -152,6 +154,27 @@ export async function handleAdminAudit(ctx: BotContext): Promise<void> {
   await ctx.reply(`📋 <b>Последние действия:</b>\n\n<code>${text}</code>`, { parse_mode: 'HTML' });
 }
 
+export async function handleAdminReport(ctx: BotContext): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+
+  await ctx.reply('⏳ Генерирую отчёт...');
+
+  let filePath: string | null = null;
+  try {
+    filePath = await generateReport();
+    await ctx.replyWithDocument(
+      new InputFile(filePath, `engbot_report_${new Date().toISOString().slice(0, 10)}.xlsx`),
+      { caption: `📊 Отчёт сформирован ${new Date().toLocaleString('ru-RU')}` },
+    );
+    logAdminAction(ctx.from!.id, 'generate_report');
+  } catch (err) {
+    logger.error({ err }, 'Ошибка генерации отчёта');
+    await ctx.reply(`❌ Ошибка при генерации отчёта: ${String(err)}`);
+  } finally {
+    if (filePath) cleanupReport(filePath);
+  }
+}
+
 export async function handleAdminCommand(ctx: BotContext): Promise<void> {
   if (!requireAdmin(ctx)) return;
 
@@ -199,6 +222,9 @@ export async function handleAdminCommand(ctx: BotContext): Promise<void> {
       case '/admin_audit':
         await handleAdminAudit(ctx);
         break;
+      case '/admin_report':
+        await handleAdminReport(ctx);
+        break;
       case '/admin_help':
         await ctx.reply(
           `🔑 <b>Команды администратора:</b>\n\n` +
@@ -208,7 +234,8 @@ export async function handleAdminCommand(ctx: BotContext): Promise<void> {
             `/admin_revoke <id> — отозвать доступ\n` +
             `/admin_lesson <id> <день> — повторно отправить урок\n` +
             `/admin_msg <id> <текст> — отправить сообщение\n` +
-            `/admin_audit — лог действий`,
+            `/admin_audit — лог действий\n` +
+            `/admin_report — 📊 Excel-отчёт со всей статистикой`,
           { parse_mode: 'HTML' },
         );
         break;

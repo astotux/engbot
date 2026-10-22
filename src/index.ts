@@ -3,6 +3,7 @@ import { logger } from './utils/logger.js';
 import { closeDb } from './db/connection.js';
 import { runMigrations } from './db/migrate.js';
 import { createBot } from './bot/bot.js';
+import { setBotInstance } from './bot/botInstance.js';
 import { createHttpServer, startHttpServer, processOutbox } from './http/server.js';
 import { startScheduler, stopScheduler } from './scheduler/lessonScheduler.js';
 import { startReminderScheduler, stopReminderScheduler } from './scheduler/reminderScheduler.js';
@@ -13,6 +14,7 @@ async function main(): Promise<void> {
   runMigrations();
 
   const bot = createBot();
+  setBotInstance(bot);
 
   const app = createHttpServer(bot);
   const port = Number(process.env['PORT'] ?? 3000);
