@@ -30,6 +30,7 @@ import {
   addCleanupMessage,
   cleanupAuxiliaryMessages,
   deleteUserMessage,
+  deletePrevious,
 } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 
@@ -96,15 +97,106 @@ export function formatLessonMessage(lesson: { day: number; title: string; estima
   );
 }
 
+// ─── Утилиты для медиафайлов шага ──────────────────────────────────────────
+
+export function getMp4Dimensions(filePath: string): { width: number; height: number } | null {
+  try {
+    const buf = fs.readFileSync(filePath);
+    let pos = 0;
+    while (pos < buf.length - 8) {
+      const len = buf.readUInt32BE(pos);
+      const type = buf.toString('ascii', pos + 4, pos + 8);
+      if (type === 'moov' || type === 'trak' || type === 'mdia') {
+        pos += 8;
+        continue;
+      }
+      if (type === 'tkhd') {
+        const version = buf[pos + 8];
+        const widthOffset = version === 1 ? pos + 8 + 88 : pos + 8 + 76;
+        if (widthOffset + 8 <= buf.length) {
+          const width = buf.readUInt32BE(widthOffset) >> 16;
+          const height = buf.readUInt32BE(widthOffset + 4) >> 16;
+          if (width > 0 && height > 0) {
+            return { width, height };
+          }
+        }
+      }
+      if (len <= 0) break;
+      pos += len;
+    }
+  } catch {}
+  return null;
+}
+
+export function getMp4Duration(filePath: string): number | null {
+  try {
+    const buf = fs.readFileSync(filePath);
+    let pos = 0;
+    while (pos < buf.length - 8) {
+      const len = buf.readUInt32BE(pos);
+      const type = buf.toString('ascii', pos + 4, pos + 8);
+      if (type === 'moov') {
+        pos += 8;
+        continue;
+      }
+      if (type === 'mvhd') {
+        const version = buf[pos + 8];
+        const timeScale = buf.readUInt32BE(version === 1 ? pos + 8 + 20 : pos + 8 + 12);
+        const duration = version === 1
+          ? Number(buf.readBigUInt64BE(pos + 8 + 24))
+          : buf.readUInt32BE(pos + 8 + 16);
+        if (timeScale > 0) {
+          return duration / timeScale;
+        }
+      }
+      if (len <= 0) break;
+      pos += len;
+    }
+  } catch {}
+  return null;
+}
+
+export function stepHasMedia(step: LessonStep): boolean {
+  const candidates: (string | undefined)[] = [];
+  if ('voiceFile' in step && step.voiceFile) candidates.push(step.voiceFile);
+  if ('videoNoteFile' in step && step.videoNoteFile) candidates.push(step.videoNoteFile);
+  if ('audioFile' in step && step.audioFile) candidates.push(step.audioFile);
+
+  for (const f of candidates) {
+    if (!f) continue;
+    const resolved = path.resolve(f);
+    if (fs.existsSync(resolved)) return true;
+    const ext = path.extname(resolved).toLowerCase();
+    const altExt = ext === '.mp4' ? '.mp3' : ext === '.mp3' ? '.mp4' : '';
+    if (altExt && fs.existsSync(resolved.slice(0, -ext.length) + altExt)) return true;
+  }
+  return false;
+}
+
 // ─── Отправка медиафайлов шага (аудио MP3 или кружок MP4) ────────────────────
 
 export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<void> {
   const sentPaths = new Set<string>();
 
   const sendFile = async (filePath: string, explicitType?: 'voice' | 'video_note'): Promise<void> => {
-    const resolvedPath = path.resolve(filePath);
+    let resolvedPath = path.resolve(filePath);
     if (sentPaths.has(resolvedPath)) return;
-    if (!fs.existsSync(resolvedPath)) return;
+
+    if (!fs.existsSync(resolvedPath)) {
+      // Fallback: если указан .mp4, но на диске .mp3 (или наоборот), используем существующий
+      const ext = path.extname(resolvedPath).toLowerCase();
+      const altExt = ext === '.mp4' ? '.mp3' : ext === '.mp3' ? '.mp4' : '';
+      if (altExt) {
+        const altPath = resolvedPath.slice(0, -ext.length) + altExt;
+        if (fs.existsSync(altPath)) {
+          resolvedPath = altPath;
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
 
     sentPaths.add(resolvedPath);
 
@@ -117,7 +209,19 @@ export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<
       if (mediaType === 'voice') {
         sentMsg = await ctx.replyWithVoice(new InputFile(resolvedPath));
       } else {
-        sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath));
+        // Видео-кружок (video_note): вычисляем диаметр length и длительность duration
+        const dims = getMp4Dimensions(resolvedPath);
+        const duration = getMp4Duration(resolvedPath);
+        const opts: { length?: number; duration?: number } = {};
+        if (dims && dims.width > 0 && dims.height > 0) {
+          opts.length = Math.min(dims.width, dims.height);
+        } else {
+          opts.length = 640;
+        }
+        if (duration && duration > 0) {
+          opts.duration = Math.round(duration);
+        }
+        sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath), opts);
       }
       if (sentMsg?.message_id) {
         addCleanupMessage(ctx, sentMsg.message_id);
@@ -153,42 +257,51 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   // Очищаем медиафайлы предыдущего шага
   await cleanupAuxiliaryMessages(ctx);
 
-  // Отправляем медиафайлы текущего шага: mp3 (голосовое сообщение) или mp4 (видео-кружок)
-  await sendStepMedia(ctx, step);
+  const hasMedia = stepHasMedia(step);
+
+  // Если шаг содержит голосовое или кружок, отправляем их ДО основного сообщения.
+  // Для этого удаляем предыдущий экран бота, отправляем медиа (оно окажется выше),
+  // а затем отправляем новое основное сообщение под медиа (forceNew: true).
+  if (hasMedia) {
+    await deletePrevious(ctx);
+    await sendStepMedia(ctx, step);
+  }
+
+  const screenOptions = {
+    parse_mode: 'HTML' as const,
+    skipCleanup: true,
+    forceNew: hasMedia,
+  };
 
   if (step.type === 'explain') {
     const text = formatExplainStep(step, day, stepIndex, total);
     const isLast = stepIndex === total - 1;
     await sendScreen(ctx, text, {
-      parse_mode: 'HTML',
+      ...screenOptions,
       reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
-      skipCleanup: true,
     });
 
   } else if (step.type === 'choice') {
     const text = formatChoiceStep(step, day, stepIndex, total);
     await sendScreen(ctx, text, {
-      parse_mode: 'HTML',
+      ...screenOptions,
       reply_markup: choiceKeyboard(step, day, stepIndex),
-      skipCleanup: true,
     });
 
   } else if (step.type === 'input') {
     const text = formatInputStep(step, day, stepIndex, total);
     ctx.session.awaitingStep = { day, stepIndex, type: 'input' };
     await sendScreen(ctx, text, {
-      parse_mode: 'HTML',
+      ...screenOptions,
       reply_markup: inputKeyboard(day, stepIndex),
-      skipCleanup: true,
     });
 
   } else if (step.type === 'free') {
     const text = formatFreeStep(step, day, stepIndex, total);
     ctx.session.awaitingStep = { day, stepIndex, type: 'free' };
     await sendScreen(ctx, text, {
-      parse_mode: 'HTML',
+      ...screenOptions,
       reply_markup: inputKeyboard(day, stepIndex),
-      skipCleanup: true,
     });
   }
 }
@@ -256,12 +369,6 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
 
   const prog = getOrInitStepProgress(telegramId, lesson.day);
   const stepIndex = prog.completed_at ? 0 : prog.step_index;
-
-  await sendScreen(
-    ctx,
-    `📖 <b>День ${lesson.day}: ${lesson.title}</b>\n⏱ ~${lesson.estimatedMinutes} мин\n\nНачинаем!`,
-    { parse_mode: 'HTML' },
-  );
 
   await sendStep(ctx, lesson.day, stepIndex);
 }

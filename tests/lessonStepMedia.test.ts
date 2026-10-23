@@ -4,7 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import type { BotContext } from '../src/bot/context.js';
 import type { LessonStep } from '../src/content/course.js';
-import { sendStepMedia } from '../src/bot/handlers/lessonHandler.js';
+import {
+  sendStepMedia,
+  stepHasMedia,
+  getMp4Dimensions,
+  getMp4Duration,
+} from '../src/bot/handlers/lessonHandler.js';
 
 describe('sendStepMedia', () => {
   let mockCtx: Partial<BotContext>;
@@ -22,10 +27,11 @@ describe('sendStepMedia', () => {
     fs.writeFileSync(tempMp3, 'dummy mp3 content');
     fs.writeFileSync(tempMp4, 'dummy mp4 content');
 
-    replyWithVoiceMock = vi.fn().mockResolvedValue({});
-    replyWithVideoNoteMock = vi.fn().mockResolvedValue({});
+    replyWithVoiceMock = vi.fn().mockResolvedValue({ message_id: 201 });
+    replyWithVideoNoteMock = vi.fn().mockResolvedValue({ message_id: 202 });
 
     mockCtx = {
+      session: { cleanupMessageIds: [] } as any,
       replyWithVoice: replyWithVoiceMock,
       replyWithVideoNote: replyWithVideoNoteMock,
     } as unknown as BotContext;
@@ -56,9 +62,10 @@ describe('sendStepMedia', () => {
 
     expect(replyWithVoiceMock).toHaveBeenCalledTimes(1);
     expect(replyWithVideoNoteMock).not.toHaveBeenCalled();
+    expect(mockCtx.session?.cleanupMessageIds).toContain(201);
   });
 
-  it('отправляет .mp4 как видео-кружок (replyWithVideoNote)', async () => {
+  it('отправляет .mp4 как видео-кружок (replyWithVideoNote) с опцией length', async () => {
     const step: LessonStep = {
       type: 'explain',
       title: 'Intro',
@@ -70,6 +77,8 @@ describe('sendStepMedia', () => {
 
     expect(replyWithVideoNoteMock).toHaveBeenCalledTimes(1);
     expect(replyWithVoiceMock).not.toHaveBeenCalled();
+    expect(replyWithVideoNoteMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ length: 640 }));
+    expect(mockCtx.session?.cleanupMessageIds).toContain(202);
   });
 
   it('поддерживает явные поля voiceFile и videoNoteFile', async () => {
@@ -107,7 +116,7 @@ describe('sendStepMedia', () => {
     const step: LessonStep = {
       type: 'choice',
       question: 'Missing file',
-      audioFile: 'assets/audio/non_existent_file.mp3',
+      audioFile: 'assets/audio/non_existent_file_12345.mp3',
       options: ['1', '2'],
       correctIndex: 0,
       hint: '',
@@ -117,5 +126,52 @@ describe('sendStepMedia', () => {
     await expect(sendStepMedia(mockCtx as BotContext, step)).resolves.not.toThrow();
     expect(replyWithVoiceMock).not.toHaveBeenCalled();
     expect(replyWithVideoNoteMock).not.toHaveBeenCalled();
+  });
+
+  it('автоматически фоллбечит расширение .mp4 на существующий .mp3', async () => {
+    const fallbackPath = path.join(tempDir, 'voice_only.mp4');
+    const actualMp3 = path.join(tempDir, 'voice_only.mp3');
+    fs.writeFileSync(actualMp3, 'dummy mp3 data');
+
+    const step: LessonStep = {
+      type: 'explain',
+      title: 'Fallback test',
+      text: 'Text',
+      audioFile: fallbackPath,
+    };
+
+    await sendStepMedia(mockCtx as BotContext, step);
+
+    expect(replyWithVoiceMock).toHaveBeenCalledTimes(1);
+    expect(replyWithVideoNoteMock).not.toHaveBeenCalled();
+  });
+
+  it('stepHasMedia возвращает true если есть медиафайл и false если его нет', () => {
+    expect(stepHasMedia({
+      type: 'explain',
+      title: 'No media',
+      text: 'Text',
+    })).toBe(false);
+
+    expect(stepHasMedia({
+      type: 'explain',
+      title: 'With media',
+      text: 'Text',
+      voiceFile: tempMp3,
+    })).toBe(true);
+  });
+
+  it('getMp4Dimensions и getMp4Duration корректно считывают реальный видео-кружок intro', () => {
+    const introPath = 'assets/audio/day01_s01_intro.mp4';
+    if (fs.existsSync(introPath)) {
+      const dims = getMp4Dimensions(introPath);
+      expect(dims).not.toBeNull();
+      expect(dims?.width).toBe(dims?.height); // Строго квадратный 1:1
+      expect(dims?.width).toBe(794);
+
+      const duration = getMp4Duration(introPath);
+      expect(duration).toBeGreaterThan(0);
+      expect(Math.round(duration!)).toBe(10);
+    }
   });
 });
