@@ -212,12 +212,10 @@ describe('Новые фичи и мини-игры', () => {
       await handleLessonTimeMenu(ctx);
       expect(ctx.getLastText()).toContain('Выбрать время уроков');
       expect(ctx.getLastText()).toContain('10:00 (МСК)');
-      expect(ctx.getLastText()).toContain('07:00');
 
       // Меняем время на 18:00 МСК (15:00 серверное)
       await handleSetLessonTime(ctx, 18);
       expect(ctx.getLastText()).toContain('18:00 (МСК)');
-      expect(ctx.getLastText()).toContain('15:00');
 
       const access = getCourseAccess(1001);
       expect(access?.send_hour).toBe(18);
@@ -230,10 +228,16 @@ describe('Новые фичи и мини-игры', () => {
 
   // ─── 3. 🏅 Витрина значков в «Мой прогресс» ────────────────────────────────
   describe('3. 🏅 Витрина значков в «Мой прогресс»', () => {
-    it('изначально все 4 значка закрыты', () => {
+    it('изначально все 8 значков закрыты, и в витрине нет замочков 🔒 или спойлеров к закрытым значкам', () => {
       const badges = getUserAchievements(1001);
-      expect(badges.length).toBe(4);
+      expect(badges.length).toBe(8);
       expect(badges.every((b) => !b.unlocked)).toBe(true);
+
+      const sectionText = formatAchievementsSection(1001);
+      expect(sectionText).toContain('Витрина значков (0 из 8)');
+      expect(sectionText).not.toContain('🔒');
+      expect(sectionText).not.toContain('Первый шаг');
+      expect(sectionText).not.toContain('Полиглот-снайпер');
     });
 
     it('открывает значок «Первый шаг» после прохождения 1-го урока', () => {
@@ -254,14 +258,23 @@ describe('Новые фичи и мини-игры', () => {
       expect(flawless?.title).toBe('Без единой ошибки');
     });
 
-    it('открывает значок «Экватор» после прохождения 15 дней курса', () => {
-      for (let day = 1; day <= 15; day++) {
+    it('открывает значки «Первая неделя» (7 дн.), «Экватор» (15 дн.) и «Выпускник курса» (30 дн.)', () => {
+      for (let day = 1; day <= 7; day++) {
         saveSubmission(1001, day, 'completed', true, 100);
       }
-      const badges = getUserAchievements(1001);
-      const equator = badges.find((b) => b.id === 'equator');
-      expect(equator?.unlocked).toBe(true);
-      expect(equator?.title).toBe('Экватор');
+      expect(getUserAchievements(1001).find((b) => b.id === 'week_streak')?.unlocked).toBe(true);
+      expect(getUserAchievements(1001).find((b) => b.id === 'equator')?.unlocked).toBe(false);
+
+      for (let day = 8; day <= 15; day++) {
+        saveSubmission(1001, day, 'completed', true, 100);
+      }
+      expect(getUserAchievements(1001).find((b) => b.id === 'equator')?.unlocked).toBe(true);
+      expect(getUserAchievements(1001).find((b) => b.id === 'course_graduate')?.unlocked).toBe(false);
+
+      for (let day = 16; day <= 30; day++) {
+        saveSubmission(1001, day, 'completed', true, 100);
+      }
+      expect(getUserAchievements(1001).find((b) => b.id === 'course_graduate')?.unlocked).toBe(true);
     });
 
     it('открывает значок «Полиглот-снайпер» при 100 усвоенных словах в тренажёре', () => {
@@ -282,7 +295,19 @@ describe('Новые фичи и мини-игры', () => {
       expect(polyglot?.title).toBe('Полиглот-снайпер');
     });
 
-    it('отображает витрину значков в разделе «Мой прогресс»', async () => {
+    it('открывает значки за мини-игры: «Архитектор фраз» (10 фраз) и «Душа компании» (все диалоги)', () => {
+      const allScenarioIds = DIALOGUE_SCENARIOS.map((s) => s.id);
+      testDb.prepare(`
+        INSERT OR REPLACE INTO minigame_progress (telegram_id, phrases_completed, dialogues_completed_json)
+        VALUES (1001, 10, ?)
+      `).run(JSON.stringify(allScenarioIds));
+
+      const badges = getUserAchievements(1001);
+      expect(badges.find((b) => b.id === 'phrase_architect')?.unlocked).toBe(true);
+      expect(badges.find((b) => b.id === 'dialogue_master')?.unlocked).toBe(true);
+    });
+
+    it('отображает в разделе «Мой прогресс» только открытые значки и счётчик (n из N) без замочков', async () => {
       createCourseAccess(1001, null, 'active');
       startCourse(1001);
       saveSubmission(1001, 1, 'completed', true, 100);
@@ -291,11 +316,12 @@ describe('Новые фичи и мини-игры', () => {
       await handleProgress(ctx);
 
       const text = ctx.getLastText();
-      expect(text).toContain('Витрина значков (1 из 4)');
+      expect(text).toContain('Витрина значков (1 из 8)');
       expect(text).toContain('«Первый шаг»');
-      expect(text).toContain('«Без единой ошибки»');
-      expect(text).toContain('«Экватор»');
-      expect(text).toContain('«Полиглот-снайпер»');
+      expect(text).not.toContain('🔒');
+      expect(text).not.toContain('«Без единой ошибки»');
+      expect(text).not.toContain('«Экватор»');
+      expect(text).not.toContain('«Полиглот-снайпер»');
     });
   });
 

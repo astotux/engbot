@@ -14,6 +14,8 @@ import {
 } from '../db/repositories/lessonSteps.js';
 import { getCourseAccess, updateCourseSendTime } from '../db/repositories/courseAccess.js';
 import { countMasteredWords, hasFlawlessQuizSession } from '../db/repositories/vocabulary.js';
+import { getMinigameProgress } from '../db/repositories/minigames.js';
+import { DIALOGUE_SCENARIOS } from '../content/minigames.js';
 import { toZonedScheduledTime, mskHourToServerHour } from '../utils/time.js';
 import { config } from '../config/index.js';
 
@@ -188,8 +190,18 @@ export function getLessonForUser(telegramId: number, day?: number): Lesson | und
 
 // ─── Достижения (Витрина значков) ─────────────────────────────────────────────
 
+export type AchievementBadgeId =
+  | 'first_step'
+  | 'week_streak'
+  | 'equator'
+  | 'course_graduate'
+  | 'flawless_quiz'
+  | 'polyglot_sniper'
+  | 'phrase_architect'
+  | 'dialogue_master';
+
 export interface AchievementBadge {
-  id: 'first_step' | 'flawless_quiz' | 'equator' | 'polyglot_sniper';
+  id: AchievementBadgeId;
   title: string;
   description: string;
   icon: string;
@@ -201,10 +213,19 @@ export function getUserAchievements(telegramId: number): AchievementBadge[] {
   const completedDays = getCompletedDays(telegramId);
   const completedCount = completedDays.length;
   const firstStepDone = completedDays.includes(1) || completedCount >= 1;
-  const flawlessQuizDone = hasFlawlessQuizSession(telegramId);
+  const weekStreakDone = completedCount >= 7;
   const equatorDone = completedCount >= 15;
+  const graduateDone = completedCount >= 30;
+
+  const flawlessQuizDone = hasFlawlessQuizSession(telegramId);
   const masteredWordsCount = countMasteredWords(telegramId);
   const polyglotDone = masteredWordsCount >= 100;
+
+  const minigames = getMinigameProgress(telegramId);
+  const phraseArchitectDone = minigames.phrasesCompleted >= 10;
+  const totalDialogues = DIALOGUE_SCENARIOS.length;
+  const dialogueMasterDone =
+    totalDialogues > 0 && minigames.dialoguesCompleted.length >= totalDialogues;
 
   return [
     {
@@ -224,6 +245,14 @@ export function getUserAchievements(telegramId: number): AchievementBadge[] {
       progressText: flawlessQuizDone ? 'Открыто' : 'Нужен тест 10/10',
     },
     {
+      id: 'week_streak',
+      title: 'Первая неделя',
+      description: 'пройдено 7 дней курса',
+      icon: '🔥',
+      unlocked: weekStreakDone,
+      progressText: weekStreakDone ? 'Открыто' : `${Math.min(completedCount, 7)}/7 дн.`,
+    },
+    {
       id: 'equator',
       title: 'Экватор',
       description: 'пройдено 15 дней курса',
@@ -238,6 +267,34 @@ export function getUserAchievements(telegramId: number): AchievementBadge[] {
       icon: '🏆',
       unlocked: polyglotDone,
       progressText: polyglotDone ? 'Открыто' : `${Math.min(masteredWordsCount, 100)}/100 сл.`,
+    },
+    {
+      id: 'phrase_architect',
+      title: 'Архитектор фраз',
+      description: 'собрано 10 предложений в конструкторе фраз',
+      icon: '🧩',
+      unlocked: phraseArchitectDone,
+      progressText: phraseArchitectDone
+        ? 'Открыто'
+        : `${Math.min(minigames.phrasesCompleted, 10)}/10 фраз`,
+    },
+    {
+      id: 'dialogue_master',
+      title: 'Душа компании',
+      description: 'пройдены все сценарии в тренажёре диалогов',
+      icon: '💬',
+      unlocked: dialogueMasterDone,
+      progressText: dialogueMasterDone
+        ? 'Открыто'
+        : `${minigames.dialoguesCompleted.length}/${totalDialogues} диал.`,
+    },
+    {
+      id: 'course_graduate',
+      title: 'Выпускник курса',
+      description: 'пройдены все 30 дней курса',
+      icon: '🎓',
+      unlocked: graduateDone,
+      progressText: graduateDone ? 'Открыто' : `${Math.min(completedCount, 30)}/30 дн.`,
     },
   ];
 }

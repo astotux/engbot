@@ -10,6 +10,7 @@ import {
   handleSupport,
   handleCancel,
   handleDisableReminders,
+  formatMenuText,
 } from './handlers/menuHandler.js';
 import {
   handleCourseInfo,
@@ -114,7 +115,9 @@ export function createBot(): Bot<BotContext> {
     }
     const telegramId = ctx.from?.id;
     const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
-    await editScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
+    const text = formatMenuText(hasCourse, ctx.from?.first_name);
+    await editScreen(ctx, text, {
+      parse_mode: 'HTML',
       reply_markup: mainMenuKeyboard(hasCourse),
     });
   });
@@ -196,9 +199,9 @@ export function createBot(): Bot<BotContext> {
 
     const kb = new InlineKeyboard();
     if (!hasCourse) {
-      kb.text('💳 Получить курс за 500 ₽', 'buy_course').row();
+      kb.text(`💳 Получить курс за ${config.coursePriceRub} ₽`, 'buy_course').row();
     }
-    kb.text('🧠 Словарный тренажёр', 'vocab:menu').row();
+    kb.text('🎮 Мини-игры и тренажёры', 'games:menu').row();
     kb.text('🏠 В главное меню', 'main_menu');
 
     await editScreen(
@@ -224,7 +227,7 @@ export function createBot(): Bot<BotContext> {
       `• Прошедшее время: Past Simple и формы <i>was / were</i>\n` +
       `• Составление уверенного рассказа о себе\n` +
       `• Финальное повторение и итоговый экзамен\n\n` +
-      `🎁 <b>Бонус:</b> Неограниченный словарный тренажёр на <b>500+ слов</b> (A1–C2)!`,
+      `🎁 <b>Бонус:</b> Мини-игры и тренажёры — словарь на <b>500+ слов</b> (A1–C2), конструктор фраз и тренажёр диалогов!`,
       { parse_mode: 'HTML', reply_markup: kb },
     );
   });

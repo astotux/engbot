@@ -7,7 +7,6 @@ import { getCompletedDays } from '../../db/repositories/lessons.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
 import { getLessonByDay } from '../../content/course.js';
 import { setUserLessonTime } from '../../services/lessonService.js';
-import { mskHourToServerHour } from '../../utils/time.js';
 import { editScreen, sendPersistentDocument } from '../sendHelper.js';
 
 export interface NoteItem {
@@ -189,12 +188,10 @@ export function lessonTimeKeyboard(currentMskHour: number): InlineKeyboard {
 }
 
 export function formatLessonTimeText(mskHour: number, mskMinute = 0): string {
-  const serverHour = mskHourToServerHour(mskHour);
   return (
     `⏰ <b>Выбрать время уроков</b>\n\n` +
     `Сейчас отправка уроков настроена на: <b>${pad2(mskHour)}:${pad2(mskMinute)} (МСК)</b>\n` +
-    `🖥 <i>Время на сервере (отличается на 3 часа, UTC): ${pad2(serverHour)}:${pad2(mskMinute)}</i>\n\n` +
-    `Выбери удобный час по Москве (МСК) — бот автоматически пересчитает серверное время (-3 часа) и обновит расписание предстоящих уроков:`
+    `Выбери удобный час для получения своих уроков! (время МСК)`
   );
 }
 
@@ -221,7 +218,7 @@ export async function handleSetLessonTime(ctx: BotContext, mskHour: number): Pro
 
   if (ctx.callbackQuery) {
     await ctx.answerCallbackQuery(
-      `⏰ Время установлено: ${pad2(savedHour)}:${pad2(mskMinute)} МСК (сервер: ${pad2(serverHour)}:${pad2(mskMinute)} UTC)`,
+      `⏰ Время установлено: ${pad2(savedHour)}:${pad2(mskMinute)}`,
     );
   }
 

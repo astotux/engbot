@@ -13,6 +13,7 @@ import {
 import { logAdminAction, getRecentAuditLogs } from '../db/repositories/adminAudit.js';
 import { getLessonByDay } from '../content/course.js';
 import { formatLessonMessage } from '../bot/handlers/lessonHandler.js';
+import { scheduleAllLessons } from '../services/lessonService.js';
 import { generateReport, cleanupReport } from '../services/reportService.js';
 import { logger } from '../utils/logger.js';
 import { InputFile } from 'grammy';
@@ -86,6 +87,7 @@ export async function handleAdminGrant(ctx: BotContext, targetId: number): Promi
 
   grantCourseAccess(targetId);
   startCourse(targetId);
+  scheduleAllLessons(targetId);
   logAdminAction(adminId, 'grant_access', targetId, 'Ручная выдача доступа');
   await ctx.reply(`✅ Доступ к курсу выдан пользователю ${targetId}.`);
   logger.info({ adminId, targetId }, 'Ручная выдача доступа');

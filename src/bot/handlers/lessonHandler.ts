@@ -533,7 +533,9 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   const total = getTotalSteps(day);
   markStepDone(telegramId, day, total - 1);
 
-  const doneText = `🎉 <b>Урок ${day} завершён!</b>\n\nОтличная работа! Следующий урок придёт завтра по расписанию.`;
+  const doneText =
+    `🎉 <b>Урок ${day} завершён!</b>\n\n` +
+    `Отличная работа! Конспект этого урока теперь также всегда доступен в разделе «📂 Мои конспекты», а следующий урок придёт завтра по расписанию.`;
   const lesson = getLessonByDay(day);
   const pdfPath = lesson?.pdfFile ? path.resolve(lesson.pdfFile) : null;
 
@@ -641,14 +643,17 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
 
 export function formatAchievementsSection(telegramId: number): string {
   const badges = getUserAchievements(telegramId);
-  const unlockedCount = badges.filter((b) => b.unlocked).length;
+  const unlockedBadges = badges.filter((b) => b.unlocked);
 
-  let text = `\n🏅 <b>Витрина значков (${unlockedCount} из ${badges.length}):</b>\n`;
-  for (const b of badges) {
-    if (b.unlocked) {
+  let text = `\n🏅 <b>Витрина значков (${unlockedBadges.length} из ${badges.length}):</b>\n`;
+  if (unlockedBadges.length === 0) {
+    text += `<i>Пока не открыто ни одного значка. Проходи уроки, тренируй словарь и мини-игры, чтобы открывать секретные награды!</i>\n`;
+  } else {
+    for (const b of unlockedBadges) {
       text += `${b.icon} <b>«${b.title}»</b> — ${b.description} ✅\n`;
-    } else {
-      text += `🔒 <b>«${b.title}»</b> — ${b.description} <i>(${b.progressText})</i>\n`;
+    }
+    if (unlockedBadges.length < badges.length) {
+      text += `<i>Продолжай обучение, чтобы открыть остальные награды!</i>\n`;
     }
   }
   return text;

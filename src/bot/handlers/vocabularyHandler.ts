@@ -35,6 +35,7 @@ import {
   getSessionQuestions,
 } from '../../db/repositories/vocabulary.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
+import { config } from '../../config/index.js';
 import {
   vocabMenuKeyboard,
   afterStudyKeyboard,
@@ -61,7 +62,8 @@ function userHasCourse(telegramId: number): boolean {
 /** Клавиатура «купи курс» */
 function buyCourseKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('💳 Купить курс за 500 ₽', 'buy_course').row()
+    .text(`💳 Купить курс`, 'buy_course').row()
+    .text('🎮 Мини-игры', 'games:menu')
     .text('🏠 На главную', 'main_menu');
 }
 
