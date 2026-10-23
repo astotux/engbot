@@ -77,7 +77,7 @@ export interface Lesson {
 
 // ─── Уроки ───────────────────────────────────────────────────────────────────
 
-export const LESSONS: Lesson[] = [
+export const LESSONS_OLD: Lesson[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   // ДЕНЬ 1 — Приветствия
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1743,14 +1743,21 @@ export const LESSONS: Lesson[] = [
 
 // ─── Утилиты ─────────────────────────────────────────────────────────────────
 
-export function getLessonByDay(day: number): Lesson | undefined {
-  return LESSONS.find((l) => l.day === day);
-}
+// export function getLessonByDay(day: number): Lesson | undefined {
+//   return LESSONS.find((l) => l.day === day);
+// }
 
-export function getTotalSteps(day: number): number {
-  return getLessonByDay(day)?.steps.length ?? 0;
-}
+// export function getTotalSteps(day: number): number {
+//   return getLessonByDay(day)?.steps.length ?? 0;
+// }
 
-export function getStep(day: number, stepIndex: number): LessonStep | undefined {
-  return getLessonByDay(day)?.steps[stepIndex];
-}
+// export function getStep(day: number, stepIndex: number): LessonStep | undefined {
+//   return getLessonByDay(day)?.steps[stepIndex];
+// }
+
+export {
+  LESSONS_ as LESSONS,
+  getLessonByDay,
+  getTotalSteps,
+  getStep,
+} from './course_.js';
