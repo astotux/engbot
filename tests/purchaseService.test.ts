@@ -34,15 +34,30 @@ vi.mock('../src/payments/yookassa.js', () => ({
 }));
 
 const { upsertUser } = await import('../src/db/repositories/users.js');
-const { handleWebhookEvent, initiatePurchase } = await import('../src/services/purchaseService.js');
+const {
+  handleWebhookEvent,
+  initiatePurchase,
+  verifyPaymentById,
+  reconcilePendingPayments,
+} = await import('../src/services/purchaseService.js');
 const { getCourseAccess } = await import('../src/db/repositories/courseAccess.js');
-const { getPaymentByYookassaId } = await import('../src/db/repositories/payments.js');
+const { getPaymentByYookassaId, getPaymentById } = await import('../src/db/repositories/payments.js');
 const { isWebhookProcessed } = await import('../src/db/repositories/webhookEvents.js');
+const { getYookassaPayment } = await import('../src/payments/yookassa.js');
+const { config } = await import('../src/config/index.js');
 
 describe('PurchaseService', () => {
   beforeEach(() => {
     testDb = createTestDb();
     upsertUser({ telegram_id: 400, username: 'buyer' });
+    (config as { coursePriceKopecks: number }).coursePriceKopecks = 50000;
+    (config.yookassa as { enabled: boolean }).enabled = true;
+    vi.mocked(getYookassaPayment).mockReset();
+    vi.mocked(getYookassaPayment).mockResolvedValue({
+      id: 'yk-test-001',
+      status: 'succeeded',
+      amount: { value: '500.00', currency: 'RUB' },
+    });
   });
 
   it('initiatePurchase создаёт заказ и возвращает ссылку', async () => {
@@ -71,7 +86,7 @@ describe('PurchaseService', () => {
 
     const access = getCourseAccess(400);
     expect(access).toBeTruthy();
-    expect(access?.status).toBe('pending'); // pending до нажатия "Начать"
+    expect(access?.status).toBe('active'); // сразу active после подтверждения оплаты
   });
 
   it('не выдаёт доступ дважды при повторном webhook', async () => {
@@ -91,13 +106,6 @@ describe('PurchaseService', () => {
   });
 
   it('не выдаёт доступ при отменённом платеже', async () => {
-    const { getYookassaPayment } = await import('../src/payments/yookassa.js');
-    vi.mocked(getYookassaPayment).mockResolvedValueOnce({
-      id: 'yk-canceled-001',
-      status: 'canceled',
-      amount: { value: '500.00', currency: 'RUB' },
-    });
-
     await initiatePurchase(400);
 
     const payload = {
@@ -130,5 +138,123 @@ describe('PurchaseService', () => {
     await handleWebhookEvent(payload, 'evt-fake');
     const access = getCourseAccess(400);
     expect(access).toBeUndefined();
+  });
+
+  it('сверяет сумму платежа с конкретным заказом из БД, даже если config изменился', async () => {
+    const { getYookassaPayment } = await import('../src/payments/yookassa.js');
+    vi.mocked(getYookassaPayment).mockResolvedValue({
+      id: 'yk-price-change',
+      status: 'succeeded',
+      amount: { value: '500.00', currency: 'RUB' }, // оплата по старой цене заказа
+    });
+
+    // Создаём заказ по цене 500 руб (50000 коп)
+    const { paymentId } = await initiatePurchase(400);
+    const payment = getPaymentById(paymentId);
+    expect(payment?.amount_kopecks).toBe(50000);
+
+    // Привязываем yookassaId
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-price-change' WHERE id = ?").run(paymentId);
+
+    // Эмулируем изменение цены в config на 600 руб (60000 коп)
+    (config as { coursePriceKopecks: number }).coursePriceKopecks = 60000;
+
+    const payload = {
+      type: 'notification',
+      event: 'payment.succeeded',
+      object: { id: 'yk-price-change', status: 'succeeded', amount: { value: '500.00', currency: 'RUB' } },
+    };
+
+    // Вебхук со старой ценой 500.00 ДОЛЖЕН успешно пройти, т.к. сверяется с заказом
+    await handleWebhookEvent(payload, 'evt-price-change');
+
+    const access = getCourseAccess(400);
+    expect(access).toBeTruthy();
+    expect(access?.status).toBe('active');
+
+    // Возвращаем цену назад
+    (config as { coursePriceKopecks: number }).coursePriceKopecks = 50000;
+  });
+
+  it('повторный вебхук (retry) выполняется при ошибке первой попытки', async () => {
+    const { getYookassaPayment } = await import('../src/payments/yookassa.js');
+
+    // Первая попытка падает с сетевой ошибкой
+    vi.mocked(getYookassaPayment).mockRejectedValueOnce(new Error('Network failure'));
+
+    await initiatePurchase(400);
+
+    const payload = {
+      type: 'notification',
+      event: 'payment.succeeded',
+      object: { id: 'yk-test-001', status: 'succeeded', amount: { value: '500.00', currency: 'RUB' } },
+    };
+
+    // Первая попытка завершается ошибкой
+    await expect(handleWebhookEvent(payload, 'evt-retry-test')).rejects.toThrow('Network failure');
+    // Событие НЕ должно быть помечено как обработанное
+    expect(isWebhookProcessed('evt-retry-test')).toBe(false);
+
+    // Вторая попытка от ЮKassa
+    vi.mocked(getYookassaPayment).mockResolvedValueOnce({
+      id: 'yk-test-001',
+      status: 'succeeded',
+      amount: { value: '500.00', currency: 'RUB' },
+    });
+
+    await handleWebhookEvent(payload, 'evt-retry-test');
+    // Теперь успешно обработано!
+    expect(isWebhookProcessed('evt-retry-test')).toBe(true);
+    const access = getCourseAccess(400);
+    expect(access?.status).toBe('active');
+  });
+
+  it('verifyPaymentById успешно проверяет и финализирует оплаченный платёж', async () => {
+    const { getYookassaPayment } = await import('../src/payments/yookassa.js');
+    vi.mocked(getYookassaPayment).mockResolvedValueOnce({
+      id: 'yk-verify-01',
+      status: 'succeeded',
+      amount: { value: '500.00', currency: 'RUB' },
+    });
+
+    const { paymentId } = await initiatePurchase(400);
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-verify-01' WHERE id = ?").run(paymentId);
+
+    const result = await verifyPaymentById(paymentId);
+    expect(result.isPaid).toBe(true);
+    expect(result.status).toBe('succeeded');
+
+    const payment = getPaymentById(paymentId);
+    expect(payment?.status).toBe('succeeded');
+
+    const access = getCourseAccess(400);
+    expect(access).toBeTruthy();
+    expect(access?.status).toBe('active');
+  });
+
+  it('reconcilePendingPayments находит и завершает зависшие платежи старше 5 минут', async () => {
+    const { getYookassaPayment } = await import('../src/payments/yookassa.js');
+    vi.mocked(getYookassaPayment).mockResolvedValue({
+      id: 'yk-reconcile-01',
+      status: 'succeeded',
+      amount: { value: '500.00', currency: 'RUB' },
+    });
+
+    (config.yookassa as { enabled: boolean }).enabled = true;
+
+    const { paymentId } = await initiatePurchase(400);
+    // Делаем платёж созданным 10 минут назад
+    testDb
+      .prepare("UPDATE payments SET yookassa_id = 'yk-reconcile-01', created_at = datetime('now', '-10 minutes') WHERE id = ?")
+      .run(paymentId);
+
+    const reconcileResult = await reconcilePendingPayments();
+    expect(reconcileResult.checked).toBe(1);
+    expect(reconcileResult.resolved).toBe(1);
+
+    const access = getCourseAccess(400);
+    expect(access?.status).toBe('active');
+
+    (config.yookassa as { enabled: boolean }).enabled = false;
   });
 });
