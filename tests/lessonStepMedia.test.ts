@@ -167,7 +167,7 @@ describe('sendStepMedia', () => {
       const dims = getMp4Dimensions(introPath);
       expect(dims).not.toBeNull();
       expect(dims?.width).toBe(dims?.height); // Строго квадратный 1:1
-      expect(dims?.width).toBe(794);
+      expect(dims?.width).toBe(640);
 
       const duration = getMp4Duration(introPath);
       expect(duration).toBeGreaterThan(0);

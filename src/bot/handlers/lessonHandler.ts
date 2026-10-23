@@ -209,19 +209,30 @@ export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<
       if (mediaType === 'voice') {
         sentMsg = await ctx.replyWithVoice(new InputFile(resolvedPath));
       } else {
-        // Видео-кружок (video_note): вычисляем диаметр length и длительность duration
+        // Видео-кружок (video_note): диаметр length (до 640px) и длительность duration
         const dims = getMp4Dimensions(resolvedPath);
         const duration = getMp4Duration(resolvedPath);
-        const opts: { length?: number; duration?: number } = {};
-        if (dims && dims.width > 0 && dims.height > 0) {
-          opts.length = Math.min(dims.width, dims.height);
-        } else {
-          opts.length = 640;
-        }
+        const length = dims && dims.width > 0 && dims.height > 0
+          ? Math.min(640, Math.min(dims.width, dims.height))
+          : 640;
+        const opts: { length?: number; duration?: number } = { length };
         if (duration && duration > 0) {
           opts.duration = Math.round(duration);
         }
-        sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath), opts);
+
+        try {
+          sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath), opts);
+        } catch (noteErr) {
+          logger.warn({ noteErr, resolvedPath }, 'replyWithVideoNote с опциями не удался, пробуем без опций');
+          try {
+            sentMsg = await ctx.replyWithVideoNote(new InputFile(resolvedPath));
+          } catch (noteErr2) {
+            logger.warn({ noteErr2, resolvedPath }, 'replyWithVideoNote без опций не удался, фоллбек на replyWithVideo');
+            if (ctx.replyWithVideo) {
+              sentMsg = await ctx.replyWithVideo(new InputFile(resolvedPath));
+            }
+          }
+        }
       }
       if (sentMsg?.message_id) {
         addCleanupMessage(ctx, sentMsg.message_id);
