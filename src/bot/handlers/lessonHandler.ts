@@ -60,34 +60,46 @@ function formatFreeStep(step: FreeStep, _day: number, stepIndex: number, total: 
   return `🗣 <b>Задание ${stepIndex + 1}/${total}</b>\n\n${step.question}`;
 }
 
-function choiceKeyboard(step: ChoiceStep, day: number, stepIndex: number): InlineKeyboard {
+export function choiceKeyboard(step: ChoiceStep, day: number, stepIndex: number): InlineKeyboard {
   const kb = new InlineKeyboard();
   step.options.forEach((opt, i) => {
     kb.text(opt, `choice:${day}:${stepIndex}:${i}`).row();
   });
+  if (stepIndex > 0) {
+    kb.text('⬅️ Назад', `prevstep:${day}:${stepIndex - 1}`).row();
+  }
   kb.text('🏠 На главную', 'main_menu');
   return kb;
 }
 
-function nextStepKeyboard(day: number, nextStep: number): InlineKeyboard {
-  return new InlineKeyboard()
-    .text('➡️ Продолжить', `nextstep:${day}:${nextStep}`)
-    .row()
-    .text('🏠 На главную', 'main_menu');
+export function nextStepKeyboard(day: number, nextStep: number, prevStep?: number): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (prevStep !== undefined && prevStep >= 0) {
+    kb.text('⬅️ Назад', `prevstep:${day}:${prevStep}`);
+  }
+  kb.text('➡️ Продолжить', `nextstep:${day}:${nextStep}`).row();
+  kb.text('🏠 На главную', 'main_menu');
+  return kb;
 }
 
-function doneKeyboard(day?: number): InlineKeyboard {
-  return new InlineKeyboard()
-    .text('🏆 Завершить урок', day ? `lessonDone:${day}` : 'lessonDone')
-    .row()
-    .text('🏠 На главную', 'main_menu');
+export function doneKeyboard(day?: number, prevStep?: number): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (day && prevStep !== undefined && prevStep >= 0) {
+    kb.text('⬅️ Назад', `prevstep:${day}:${prevStep}`);
+  }
+  kb.text('🏆 Завершить урок', day ? `lessonDone:${day}` : 'lessonDone').row();
+  kb.text('🏠 На главную', 'main_menu');
+  return kb;
 }
 
-function inputKeyboard(day: number, stepIndex: number): InlineKeyboard {
-  return new InlineKeyboard()
-    .text('💡 Подсказка', `hint:${day}:${stepIndex}`)
-    .row()
-    .text('🏠 На главную', 'main_menu');
+export function inputKeyboard(day: number, stepIndex: number): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (stepIndex > 0) {
+    kb.text('⬅️ Назад', `prevstep:${day}:${stepIndex - 1}`);
+  }
+  kb.text('💡 Подсказка', `hint:${day}:${stepIndex}`).row();
+  kb.text('🏠 На главную', 'main_menu');
+  return kb;
 }
 
 /** Универсальный вывод урока-шаблона (для планировщика) */
@@ -311,14 +323,17 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   };
 
   if (step.type === 'explain') {
+    ctx.session.awaitingStep = undefined;
     const text = formatExplainStep(step, day, stepIndex, total);
     const isLast = stepIndex === total - 1;
+    const prevStep = stepIndex - 1;
     await sendScreen(ctx, text, {
       ...screenOptions,
-      reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
+      reply_markup: isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep),
     });
 
   } else if (step.type === 'choice') {
+    ctx.session.awaitingStep = undefined;
     const text = formatChoiceStep(step, day, stepIndex, total);
     await sendScreen(ctx, text, {
       ...screenOptions,
@@ -435,9 +450,10 @@ export async function handleChoiceCallback(
   if (result.isCorrect) {
     markStepDone(telegramId, day, stepIndex);
     const text = `${result.feedback}\n\n${result.explanation}`;
+    const prevStep = stepIndex - 1;
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
-      reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
+      reply_markup: isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep),
     });
   } else {
     // Неверно — обновляем этот же экран с подсказкой, кнопки остаются
@@ -467,6 +483,21 @@ export async function handleNextStep(ctx: BotContext, day: number, stepIndex: nu
   if (prevStep >= 0) {
     markStepDone(telegramId, day, prevStep);
   }
+
+  await sendStep(ctx, day, stepIndex);
+}
+
+// ─── Callback: предыдущий шаг ─────────────────────────────────────────────────
+
+export async function handlePrevStep(ctx: BotContext, day: number, stepIndex: number): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+  await ctx.answerCallbackQuery();
+
+  if (stepIndex < 0) return;
+
+  // Сбрасываем ожидание ввода, если пользователь вернулся назад
+  ctx.session.awaitingStep = undefined;
 
   await sendStep(ctx, day, stepIndex);
 }
@@ -562,12 +593,13 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
     ctx.session.awaitingStep = undefined;
     const step = getStep(day, stepIndex) as FreeStep;
     markStepDone(telegramId, day, stepIndex);
+    const prevStep = stepIndex - 1;
     await sendScreen(
       ctx,
       `✅ Ответ сохранён!\n\n💡 Пример: <i>${step.exampleAnswer}</i>`,
       {
         parse_mode: 'HTML',
-        reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
+        reply_markup: isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep),
       },
     );
   } else {
@@ -576,12 +608,13 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
     if (result.isCorrect) {
       ctx.session.awaitingStep = undefined;
       markStepDone(telegramId, day, stepIndex);
+      const prevStep = stepIndex - 1;
       await sendScreen(
         ctx,
         `${result.feedback}\n\n${result.explanation}`,
         {
           parse_mode: 'HTML',
-          reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
+          reply_markup: isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep),
         },
       );
     } else {

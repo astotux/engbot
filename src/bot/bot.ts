@@ -23,6 +23,7 @@ import {
   handleUserAnswer,
   handleChoiceCallback,
   handleNextStep,
+  handlePrevStep,
   handleHintCallback,
   handleLessonDone,
 } from './handlers/lessonHandler.js';
@@ -85,6 +86,10 @@ export function createBot(): Bot<BotContext> {
   // Главное меню
   bot.callbackQuery('main_menu', async (ctx) => {
     await ctx.answerCallbackQuery();
+    if (ctx.session) {
+      ctx.session.awaitingStep = undefined;
+      ctx.session.vocabAwaitingAnswer = undefined;
+    }
     const telegramId = ctx.from?.id;
     const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
     await editScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
@@ -181,6 +186,10 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery(/^nextstep:(\d+):(\d+)$/, async (ctx) => {
     const m = ctx.match as RegExpMatchArray;
     await handleNextStep(ctx, Number(m[1]), Number(m[2]));
+  });
+  bot.callbackQuery(/^prevstep:(\d+):(\d+)$/, async (ctx) => {
+    const m = ctx.match as RegExpMatchArray;
+    await handlePrevStep(ctx, Number(m[1]), Number(m[2]));
   });
   bot.callbackQuery(/^hint:(\d+):(\d+)$/, async (ctx) => {
     const m = ctx.match as RegExpMatchArray;
