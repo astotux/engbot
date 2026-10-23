@@ -23,6 +23,8 @@ import {
   insertAnswerHistory,
   getUserSettings,
   updateUserSettings,
+  isVocabOnboarded,
+  markVocabOnboarded,
   markDemoQuizUsed,
   isDemoQuizUsed,
   countSeenWords,
@@ -482,7 +484,15 @@ export function getUserVocabStats(telegramId: number, difficulty?: VocabDifficul
 
 // ─── Экспорт утилит ───────────────────────────────────────────────────────────
 
-export { getUserSettings, updateUserSettings, getSession, getWordById, getAllActiveWords };
+export {
+  getUserSettings,
+  updateUserSettings,
+  isVocabOnboarded,
+  markVocabOnboarded,
+  getSession,
+  getWordById,
+  getAllActiveWords,
+};
 
 // Экспорт функций демо-ограничения
 export { markDemoQuizUsed, isDemoQuizUsed };

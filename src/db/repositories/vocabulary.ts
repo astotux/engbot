@@ -72,6 +72,7 @@ export interface VocabUserSettings {
   alt_next: 'test' | 'written';
   difficulty: VocabDifficulty;
   demo_quiz_used: number; // 0 = не использован, 1 = уже прошёл
+  is_onboarded: number; // 0 = первый заход (онбординг), 1 = уже настроил
   updated_at: string;
 }
 
@@ -549,7 +550,7 @@ export function getUserSettings(telegramId: number): VocabUserSettings {
 
 export function updateUserSettings(
   telegramId: number,
-  patch: Partial<Pick<VocabUserSettings, 'direction' | 'answer_mode' | 'alt_next' | 'difficulty'>>,
+  patch: Partial<Pick<VocabUserSettings, 'direction' | 'answer_mode' | 'alt_next' | 'difficulty' | 'is_onboarded'>>,
 ): void {
   const db = getDb();
   // Гарантируем запись
@@ -579,6 +580,10 @@ export function updateUserSettings(
     updates.push('difficulty = ?');
     values.push(patch.difficulty);
   }
+  if (patch.is_onboarded !== undefined) {
+    updates.push('is_onboarded = ?');
+    values.push(patch.is_onboarded);
+  }
 
   if (updates.length === 0) return;
   updates.push("updated_at = datetime('now')");
@@ -586,6 +591,15 @@ export function updateUserSettings(
 
   db.prepare(`UPDATE vocabulary_user_settings SET ${updates.join(', ')} WHERE telegram_id = ?`)
     .run(...values);
+}
+
+export function isVocabOnboarded(telegramId: number): boolean {
+  const settings = getUserSettings(telegramId);
+  return settings.is_onboarded === 1;
+}
+
+export function markVocabOnboarded(telegramId: number): void {
+  updateUserSettings(telegramId, { is_onboarded: 1 });
 }
 
 /** Переключить alt_next после использования */

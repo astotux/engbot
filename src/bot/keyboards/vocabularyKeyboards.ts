@@ -70,6 +70,7 @@ export function settingsKeyboard(
   direction: 'en_to_ru' | 'ru_to_en',
   mode: 'test' | 'written' | 'alternating',
   difficulty: 'A1-A2' | 'B1-B2' | 'C1-C2' = 'A1-A2',
+  isOnboarding = false,
 ): InlineKeyboard {
   // Уровень сложности — три варианта, активное отмечено ✅
   const diff1 = `${difficulty === 'A1-A2' ? '✅ ' : ''}A1–A2`;
@@ -77,15 +78,15 @@ export function settingsKeyboard(
   const diff3 = `${difficulty === 'C1-C2' ? '✅ ' : ''}C1–C2`;
 
   // Направление — взаимоисключающие, активное отмечено ✅
-  const d1 = `${direction === 'en_to_ru' ? '✅ ' : ''}🇬🇧→🇷🇺 Англ → Рус`;
-  const d2 = `${direction === 'ru_to_en' ? '✅ ' : ''}🇷🇺→🇬🇧 Рус → Англ`;
+  const d1 = `${direction === 'en_to_ru' ? '✅ ' : ''}🇬🇧→🇷🇺`;
+  const d2 = `${direction === 'ru_to_en' ? '✅ ' : ''}🇷🇺→🇬🇧`;
 
   // Способ ответа — три варианта, активное отмечено ✅
   const m1 = `${mode === 'test' ? '✅ ' : ''}Тест`;
   const m2 = `${mode === 'written' ? '✅ ' : ''}Письменно`;
   const m3 = `${mode === 'alternating' ? '✅ ' : ''}Чередование`;
 
-  return new InlineKeyboard()
+  const kb = new InlineKeyboard()
     .text(diff1, 'vocab:set:diff:A1-A2')
     .text(diff2, 'vocab:set:diff:B1-B2')
     .text(diff3, 'vocab:set:diff:C1-C2').row()
@@ -93,8 +94,22 @@ export function settingsKeyboard(
     .text(d2, 'vocab:set:dir:ru_to_en').row()
     .text(m1, 'vocab:set:mode:test')
     .text(m2, 'vocab:set:mode:written')
-    .text(m3, 'vocab:set:mode:alternating').row()
-    .text('◀️ Назад', 'vocab:menu');
+    .text(m3, 'vocab:set:mode:alternating').row();
+
+  if (isOnboarding) {
+    kb.text('▶️ Продолжить', 'vocab:onboarding_done');
+  } else {
+    kb.text('◀️ Назад', 'vocab:menu');
+  }
+
+  return kb;
+}
+
+/** Подтверждение досрочного завершения теста */
+export function confirmFinishKeyboard(sessionId: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('⏹ Завершить', `vocab:finish_confirm:${sessionId}`)
+    .text('▶️ Вернуться', `vocab:resume:${sessionId}`);
 }
 
 /** Кнопка «назад в меню словаря» */

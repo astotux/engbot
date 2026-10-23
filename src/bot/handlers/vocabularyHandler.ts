@@ -20,6 +20,8 @@ import {
   getUserVocabStats,
   getUserSettings,
   updateUserSettings,
+  isVocabOnboarded,
+  markVocabOnboarded,
   getSession,
   getWordById,
   markDemoQuizUsed,
@@ -41,6 +43,7 @@ import {
   nextQuestionKeyboard,
   summaryKeyboard,
   settingsKeyboard,
+  confirmFinishKeyboard,
   backToVocabMenuKeyboard,
 } from '../keyboards/vocabularyKeyboards.js';
 import { sendScreen, sendEphemeral, editScreen, deleteUserMessage } from '../sendHelper.js';
@@ -70,6 +73,12 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
+  // Если пользователь заходит в словарный тренажёр впервые — открываем экран начальных настроек
+  if (!isVocabOnboarded(telegramId)) {
+    await handleVocabOnboarding(ctx);
+    return;
+  }
+
   const settings = getUserSettings(telegramId);
   const totalWords = countActiveWords(settings.difficulty);
   const hasCourse = userHasCourse(telegramId);
@@ -92,6 +101,53 @@ export async function handleVocabMenu(ctx: BotContext): Promise<void> {
     `Выбери действие:`,
     { parse_mode: 'HTML', reply_markup: vocabMenuKeyboard() },
   );
+}
+
+/**
+ * Экран первого захода в словарный тренажёр:
+ * пользователь выбирает параметры и нажимает «Продолжить».
+ */
+export async function handleVocabOnboarding(ctx: BotContext): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const settings = getUserSettings(telegramId);
+
+  const diffNames: Record<string, string> = {
+    'A1-A2': 'A1–A2 (Начальный)',
+    'B1-B2': 'B1–B2 (Средний)',
+    'C1-C2': 'C1–C2 (Продвинутый)',
+  };
+  const directionText = settings.direction === 'en_to_ru'
+    ? '🇬🇧→🇷🇺 Английский → Русский'
+    : '🇷🇺→🇬🇧 Русский → Английский';
+  const modeText: Record<string, string> = {
+    test: 'Тест (выбор вариантов)',
+    written: 'Письменно (ввод текста)',
+    alternating: 'Чередование (тест + письменный)',
+  };
+
+  const text =
+    `🧠 <b>Добро пожаловать в Словарный тренажёр!</b>\n\n` +
+    `Давай настроим тренажёр под твой уровень перед началом:\n\n` +
+    `📊 <b>Уровень сложности:</b> ${diffNames[settings.difficulty] ?? settings.difficulty}\n` +
+    `📐 <b>Направление:</b> ${directionText}\n` +
+    `📝 <b>Режим ответа:</b> ${modeText[settings.answer_mode]}\n\n` +
+    `<i>Выбери нужные параметры и нажми «▶️ Продолжить»:</i>`;
+
+  await editScreen(ctx, text, {
+    parse_mode: 'HTML',
+    reply_markup: settingsKeyboard(settings.direction, settings.answer_mode, settings.difficulty, true),
+  });
+}
+
+export async function handleVocabOnboardingDone(ctx: BotContext): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery('Настройки сохранены! ✓');
+
+  markVocabOnboarded(telegramId);
+  await handleVocabMenu(ctx);
 }
 
 // ─── Режим изучения ───────────────────────────────────────────────────────────
@@ -406,31 +462,45 @@ export async function handleFinishTest(ctx: BotContext, sessionId: number): Prom
     return;
   }
 
+  // Всегда запрашиваем подтверждение с двумя кнопками: завершить или вернуться
+  await editScreen(
+    ctx,
+    `⚠️ <b>Завершить тренировку?</b>\n\n` +
+      `Ты точно хочешь закончить тест досрочно?\n\n` +
+      `<i>Прогресс по уже отвеченным вопросам будет сохранён.</i>`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: confirmFinishKeyboard(sessionId),
+    },
+  );
+}
+
+export async function handleResumeTest(ctx: BotContext, sessionId: number): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+  await ctx.answerCallbackQuery();
+
+  const session = getSession(sessionId);
+  if (!session || session.telegram_id !== telegramId) return;
+
+  if (session.status !== 'active') {
+    await editScreen(ctx, '⚠️ Тест уже завершён.', { reply_markup: vocabMenuKeyboard() });
+    return;
+  }
+
+  const currentQ = getCurrentQuestion(sessionId);
+  if (!currentQ) {
+    const summary = buildSummary(sessionId);
+    if (!userHasCourse(telegramId)) markDemoQuizUsed(telegramId);
+    await sendSummary(ctx, summary, !userHasCourse(telegramId));
+    return;
+  }
+
   const allQuestions = getSessionQuestions(sessionId);
-  const answeredCount = allQuestions.filter((q) => q.status !== 'pending').length;
+  const questionNumber = allQuestions.findIndex((q) => q.id === currentQ.id) + 1;
+  const totalQuestions = allQuestions.length;
 
-  if (answeredCount === 0) {
-    const confirmKb = new InlineKeyboard()
-      .text('✅ Да, завершить', `vocab:finish_confirm:${sessionId}`).row()
-      .text('◀️ Продолжить тест', `vocab:next:${sessionId}:0`);
-    await sendScreen(ctx, '⚠️ Ты ещё не ответил(а) ни на один вопрос. Завершить тест?', {
-      reply_markup: confirmKb,
-    });
-    return;
-  }
-
-  const summary = finishSessionEarly(sessionId);
-  if (!summary) {
-    await editScreen(ctx, '⚠️ Не удалось завершить тест.', { reply_markup: vocabMenuKeyboard() });
-    return;
-  }
-
-  // Досрочное завершение тоже считается — расходуем демо
-  if (!userHasCourse(telegramId)) markDemoQuizUsed(telegramId);
-
-  ctx.session.vocabAwaitingAnswer = undefined;
-  ctx.session.vocabSessionId = undefined;
-  await sendSummary(ctx, summary, !userHasCourse(telegramId));
+  await sendQuestion(ctx, currentQ, questionNumber, totalQuestions);
 }
 
 export async function handleFinishConfirm(ctx: BotContext, sessionId: number): Promise<void> {
@@ -632,7 +702,11 @@ export async function handleSetDifficulty(
   if (!telegramId) return;
   await ctx.answerCallbackQuery('Уровень изменён ✓');
   updateUserSettings(telegramId, { difficulty });
-  await handleVocabSettings(ctx);
+  if (!isVocabOnboarded(telegramId)) {
+    await handleVocabOnboarding(ctx);
+  } else {
+    await handleVocabSettings(ctx);
+  }
 }
 
 export async function handleSetDirection(
@@ -643,7 +717,11 @@ export async function handleSetDirection(
   if (!telegramId) return;
   await ctx.answerCallbackQuery('Сохранено ✓');
   updateUserSettings(telegramId, { direction });
-  await handleVocabSettings(ctx);
+  if (!isVocabOnboarded(telegramId)) {
+    await handleVocabOnboarding(ctx);
+  } else {
+    await handleVocabSettings(ctx);
+  }
 }
 
 export async function handleSetMode(
@@ -654,7 +732,11 @@ export async function handleSetMode(
   if (!telegramId) return;
   await ctx.answerCallbackQuery('Сохранено ✓');
   updateUserSettings(telegramId, { answer_mode: mode });
-  await handleVocabSettings(ctx);
+  if (!isVocabOnboarded(telegramId)) {
+    await handleVocabOnboarding(ctx);
+  } else {
+    await handleVocabSettings(ctx);
+  }
 }
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────

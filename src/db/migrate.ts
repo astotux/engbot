@@ -5,6 +5,7 @@ import { up as migration002, version as v002 } from './migrations/002_lesson_ste
 import { up as migration003, version as v003 } from './migrations/003_vocabulary.js';
 import { up as migration004, version as v004 } from './migrations/004_vocab_demo.js';
 import { up as migration005, version as v005 } from './migrations/005_vocab_difficulty.js';
+import { up as migration006, version as v006 } from './migrations/006_notifications_and_onboarding.js';
 import { logger } from '../utils/logger.js';
 
 const migrations = [
@@ -13,6 +14,7 @@ const migrations = [
   { version: v003, up: migration003 },
   { version: v004, up: migration004 },
   { version: v005, up: migration005 },
+  { version: v006, up: migration006 },
 ];
 
 export function runMigrations(): void {

@@ -1,9 +1,14 @@
-import { getPendingDeliveries, markLessonSent, markLessonFailed } from '../db/repositories/lessons.js';
+import {
+  getPendingDeliveries,
+  markLessonSent,
+  markLessonFailed,
+  saveLessonNotification,
+} from '../db/repositories/lessons.js';
 import { getActiveCourseUsers } from '../db/repositories/courseAccess.js';
 import { getUserByTelegramId, setUserBlocked } from '../db/repositories/users.js';
 import { scheduleAllLessons } from '../services/lessonService.js';
 import { logger } from '../utils/logger.js';
-import type { Bot } from 'grammy';
+import { InlineKeyboard, type Bot } from 'grammy';
 import type { BotContext } from '../bot/context.js';
 import { getLessonByDay } from '../content/course.js';
 import { formatLessonMessage } from '../bot/handlers/lessonHandler.js';
@@ -57,8 +62,13 @@ async function runSchedulerTick(bot: Bot<BotContext>): Promise<void> {
     }
 
     try {
-      await bot.api.sendMessage(delivery.telegram_id, formatLessonMessage(lesson), { parse_mode: 'HTML' });
+      const kb = new InlineKeyboard().text('🚀 Начать урок', `start_scheduled_lesson:${delivery.day_number}`);
+      const sentMsg = await bot.api.sendMessage(delivery.telegram_id, formatLessonMessage(lesson), {
+        parse_mode: 'HTML',
+        reply_markup: kb,
+      });
       markLessonSent(delivery.telegram_id, delivery.day_number);
+      saveLessonNotification(delivery.telegram_id, sentMsg.message_id, delivery.day_number);
       logger.info({ telegramId: delivery.telegram_id, day: delivery.day_number }, 'Урок отправлен');
       await sleep(50);
     } catch (err: unknown) {

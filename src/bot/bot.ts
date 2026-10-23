@@ -28,6 +28,7 @@ import {
 } from './handlers/lessonHandler.js';
 import {
   handleVocabMenu,
+  handleVocabOnboardingDone,
   handleVocabStudy,
   handleVocabQuiz,
   handleTestAnswer,
@@ -35,6 +36,7 @@ import {
   handleNextQuestion,
   handleFinishTest,
   handleFinishConfirm,
+  handleResumeTest,
   handleRestartSession,
   handleVocabStats,
   handleVocabSettings,
@@ -91,6 +93,7 @@ export function createBot(): Bot<BotContext> {
   });
 
   bot.callbackQuery('my_lesson', handleLesson);
+  bot.callbackQuery(/^start_scheduled_lesson(?::\d+)?$/, handleLesson);
   bot.callbackQuery('my_progress', handleProgress);
   bot.callbackQuery('support', async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -227,6 +230,7 @@ export function createBot(): Bot<BotContext> {
 
   // Меню раздела
   bot.callbackQuery('vocab:menu', handleVocabMenu);
+  bot.callbackQuery('vocab:onboarding_done', handleVocabOnboardingDone);
 
   // Изучение слов
   bot.callbackQuery('vocab:study', handleVocabStudy);
@@ -276,6 +280,11 @@ export function createBot(): Bot<BotContext> {
   // Подтвердить досрочное завершение: vocab:finish_confirm:sessionId
   bot.callbackQuery(/^vocab:finish_confirm:(\d+)$/, async (ctx) => {
     await handleFinishConfirm(ctx, Number(ctx.match[1]));
+  });
+
+  // Вернуться к тесту: vocab:resume:sessionId
+  bot.callbackQuery(/^vocab:resume:(\d+)$/, async (ctx) => {
+    await handleResumeTest(ctx, Number(ctx.match[1]));
   });
 
   // Повторить тест: vocab:restart:sessionId

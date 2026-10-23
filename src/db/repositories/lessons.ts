@@ -137,3 +137,37 @@ export function getCompletedDays(telegramId: number): number[] {
     .all(telegramId) as Array<{ day_number: number }>;
   return rows.map((r) => r.day_number);
 }
+
+// ─── Уведомления об уроках ────────────────────────────────────────────────────
+
+export interface LessonNotification {
+  telegram_id: number;
+  message_id: number;
+  day_number: number;
+  created_at: string;
+}
+
+export function saveLessonNotification(
+  telegramId: number,
+  messageId: number,
+  dayNumber: number,
+): void {
+  getDb()
+    .prepare(`
+      INSERT OR REPLACE INTO lesson_notifications (telegram_id, message_id, day_number)
+      VALUES (?, ?, ?)
+    `)
+    .run(telegramId, messageId, dayNumber);
+}
+
+export function getLessonNotification(telegramId: number): LessonNotification | undefined {
+  return getDb()
+    .prepare('SELECT * FROM lesson_notifications WHERE telegram_id = ?')
+    .get(telegramId) as LessonNotification | undefined;
+}
+
+export function clearLessonNotification(telegramId: number): void {
+  getDb()
+    .prepare('DELETE FROM lesson_notifications WHERE telegram_id = ?')
+    .run(telegramId);
+}

@@ -12,6 +12,7 @@ import {
   markStepDone,
   scheduleAllLessons,
 } from '../../services/lessonService.js';
+import { getLessonNotification, clearLessonNotification } from '../../db/repositories/lessons.js';
 import {
   getLessonByDay,
   getStep,
@@ -94,8 +95,32 @@ export function formatLessonMessage(lesson: { day: number; title: string; estima
   return (
     `📖 <b>День ${lesson.day}: ${lesson.title}</b>\n\n` +
     `⏱ Примерное время: ${lesson.estimatedMinutes} мин\n\n` +
-    `Нажми «📖 Мой урок» в меню, чтобы начать!`
+    `Нажми «🚀 Начать урок» ниже, чтобы приступить!`
   );
+}
+
+/**
+ * Удаляет сообщение-уведомление об уроке из чата (если оно было отправлено планировщиком)
+ */
+export async function cleanupLessonNotification(
+  api: { deleteMessage: (chatId: number, messageId: number) => Promise<unknown> },
+  telegramId: number,
+  extraMessageId?: number,
+): Promise<void> {
+  const notif = getLessonNotification(telegramId);
+  clearLessonNotification(telegramId);
+
+  const idsToDelete = new Set<number>();
+  if (notif) idsToDelete.add(notif.message_id);
+  if (extraMessageId) idsToDelete.add(extraMessageId);
+
+  for (const msgId of idsToDelete) {
+    try {
+      await api.deleteMessage(telegramId, msgId);
+    } catch {
+      // Сообщение уже удалено пользователем
+    }
+  }
 }
 
 // ─── Утилиты для медиафайлов шага ──────────────────────────────────────────
@@ -326,6 +351,15 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
 
   // Если вызов из callback — отвечаем на него
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
+
+  // Удаляем сообщение-уведомление об уроке из чата (если было отправлено)
+  if (ctx.api) {
+    await cleanupLessonNotification(
+      ctx.api,
+      telegramId,
+      ctx.callbackQuery?.data?.startsWith('start_scheduled_lesson') ? ctx.callbackQuery?.message?.message_id : undefined,
+    );
+  }
 
   const access = getCourseAccess(telegramId);
   if (!access) {
