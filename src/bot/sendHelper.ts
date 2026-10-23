@@ -14,6 +14,7 @@ type SendOptions = {
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   reply_markup?: InlineKeyboard | { inline_keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> };
   skipCleanup?: boolean;
+  forceNew?: boolean;
 };
 
 // ─── Очистка сообщений ────────────────────────────────────────────────────────
@@ -63,17 +64,26 @@ export function deleteUserMessage(ctx: BotContext): void {
 }
 
 /**
- * Удаляет предыдущий главный экран бота (если необходимо начать с чистого листа)
+ * Удаляет предыдущий главный экран бота (если необходимо начать с чистого листа,
+ * например перед отправкой постоянного PDF-документа выше нового основного сообщения).
  */
 export async function deletePrevious(ctx: BotContext): Promise<void> {
-  const msgId = ctx.session?.lastBotMessageId;
   const chatId = ctx.chat?.id;
-  if (!msgId || !chatId || !ctx.api?.deleteMessage) return;
+  const lastId = ctx.session?.lastBotMessageId;
+  const cbId = ctx.callbackQuery?.message?.message_id;
   if (ctx.session) ctx.session.lastBotMessageId = undefined;
-  try {
-    await ctx.api.deleteMessage(chatId, msgId);
-  } catch {
-    // Уже удалено или слишком старое — игнорируем
+  if (!chatId || !ctx.api?.deleteMessage) return;
+
+  const idsToDelete = new Set<number>();
+  if (lastId) idsToDelete.add(lastId);
+  if (cbId) idsToDelete.add(cbId);
+
+  for (const msgId of idsToDelete) {
+    try {
+      await ctx.api.deleteMessage(chatId, msgId);
+    } catch {
+      // Уже удалено или слишком старое — игнорируем
+    }
   }
 }
 
@@ -89,7 +99,9 @@ export async function sendScreen(
   options: SendOptions = {},
 ): Promise<void> {
   const chatId = ctx.chat?.id;
-  const lastId = ctx.session?.lastBotMessageId ?? ctx.callbackQuery?.message?.message_id;
+  const lastId = options.forceNew
+    ? undefined
+    : (ctx.session?.lastBotMessageId ?? ctx.callbackQuery?.message?.message_id);
 
   // 1. Очищаем вспомогательные сообщения (медиафайлы шагов, подсказки и т.д.)
   if (!options.skipCleanup) {
@@ -191,19 +203,38 @@ export async function sendEphemeral(
   addCleanupMessage(ctx, sent.message_id);
 }
 
-// ─── Документы ───────────────────────────────────────────────────────────────
+// ─── Документы (PDF) ─────────────────────────────────────────────────────────
+
+/**
+ * Отправляет постоянный PDF-документ (бесплатный гид или конспект урока) так, чтобы:
+ * 1) он сохранялся в чате навсегда (НЕ добавляется в cleanupMessageIds и НЕ перезаписывает lastBotMessageId),
+ * 2) он находился ВЫШЕ основного сообщения бота (предыдущий главный экран удаляется до отправки PDF,
+ *    а затем под PDF отправляется новое основное сообщение бота).
+ */
+export async function sendPersistentDocument(
+  ctx: BotContext,
+  document: Parameters<typeof ctx.replyWithDocument>[0],
+  docOptions: Parameters<typeof ctx.replyWithDocument>[1] = {},
+  screenAfter?: { text: string; options?: SendOptions },
+): Promise<void> {
+  await cleanupAuxiliaryMessages(ctx);
+  await deletePrevious(ctx);
+  await ctx.replyWithDocument(document, docOptions);
+  if (screenAfter) {
+    await sendScreen(ctx, screenAfter.text, {
+      ...screenAfter.options,
+      skipCleanup: true,
+      forceNew: true,
+    });
+  }
+}
 
 export async function sendDocumentScreen(
   ctx: BotContext,
   document: Parameters<typeof ctx.replyWithDocument>[0],
   options: Parameters<typeof ctx.replyWithDocument>[1] = {},
 ): Promise<void> {
-  await cleanupAuxiliaryMessages(ctx);
-  await deletePrevious(ctx);
-  const sent = await ctx.replyWithDocument(document, options);
-  if (ctx.session) {
-    ctx.session.lastBotMessageId = sent.message_id;
-  }
+  await sendPersistentDocument(ctx, document, options);
 }
 
 export function silentDeleteMessage(ctx: BotContext, messageId: number): void {

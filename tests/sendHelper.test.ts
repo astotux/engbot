@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BotContext } from '../src/bot/context.js';
 import {
   sendScreen,
+  sendPersistentDocument,
   editScreen,
   addCleanupMessage,
   cleanupAuxiliaryMessages,
@@ -104,5 +105,34 @@ describe('sendHelper - single-message concept & cleanup', () => {
 
     expect(editMessageTextMock).toHaveBeenCalled();
     expect(mockCtx.session?.lastBotMessageId).toBe(300);
+  });
+
+  it('sendPersistentDocument удаляет старый экран, отправляет PDF (не добавляя в cleanup) и создаёт новый экран ниже', async () => {
+    const replyWithDocumentMock = vi.fn().mockResolvedValue({ message_id: 400 });
+    mockCtx.replyWithDocument = replyWithDocumentMock as any;
+    mockCtx.session!.lastBotMessageId = 100;
+    mockCtx.callbackQuery = {
+      message: { message_id: 100 },
+    } as any;
+    addCleanupMessage(mockCtx as BotContext, 555);
+    replyMock.mockResolvedValueOnce({ message_id: 401 });
+
+    await sendPersistentDocument(
+      mockCtx as BotContext,
+      'dummy-pdf' as any,
+      { caption: 'PDF конспект' },
+      { text: 'Экран под PDF' },
+    );
+
+    // 1. Вспомогательные медиа удалены
+    expect(deleteMessageMock).toHaveBeenCalledWith(12345, 555);
+    // 2. Предыдущий главный экран удалён, чтобы PDF оказался ВЫШЕ нового главного экрана
+    expect(deleteMessageMock).toHaveBeenCalledWith(12345, 100);
+    // 3. PDF отправлен и НЕ добавлен в cleanupMessageIds
+    expect(replyWithDocumentMock).toHaveBeenCalledTimes(1);
+    expect(mockCtx.session?.cleanupMessageIds).toEqual([]);
+    // 4. Новый главный экран отправлен новым сообщением ниже PDF и сохранён в lastBotMessageId
+    expect(replyMock).toHaveBeenCalledWith('Экран под PDF', expect.anything());
+    expect(mockCtx.session?.lastBotMessageId).toBe(401);
   });
 });

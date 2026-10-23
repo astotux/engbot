@@ -182,7 +182,11 @@ export function createBot(): Bot<BotContext> {
     const m = ctx.match as RegExpMatchArray;
     await handleHintCallback(ctx, Number(m[1]), Number(m[2]));
   });
-  bot.callbackQuery('lessonDone', handleLessonDone);
+  bot.callbackQuery(/^lessonDone(?::(\d+))?$/, async (ctx) => {
+    const m = ctx.match as RegExpMatchArray;
+    const explicitDay = m[1] ? Number(m[1]) : undefined;
+    await handleLessonDone(ctx, explicitDay);
+  });
 
   bot.callbackQuery(/^lesson_day_(\d+)$/, async (ctx) => {
     const day = Number(ctx.match[1]);

@@ -7,7 +7,7 @@ import { logger } from '../../utils/logger.js';
 import { getBotInstance } from '../botInstance.js';
 import { notifyNewUser } from '../../services/notifyService.js';
 import { isSubscribed, getChannelLink, getChannelName } from '../../services/subscriptionService.js';
-import { sendScreen, sendDocumentScreen, editScreen, deletePrevious } from '../sendHelper.js';
+import { sendScreen, sendPersistentDocument, editScreen, deletePrevious } from '../sendHelper.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
 import fs from 'fs';
 import path from 'path';
@@ -174,13 +174,19 @@ async function deliverChecklist(ctx: BotContext): Promise<void> {
     return;
   }
 
-  await sendDocumentScreen(
+  await sendPersistentDocument(
     ctx,
     new InputFile(checklistPath, 'checklist-english-50-words.pdf'),
     {
-      caption,
+      caption: '📄 <b>Бесплатный гид и чек-лист «Английский с нуля за 30 дней»</b>',
       parse_mode: 'HTML',
-      reply_markup: checklistKeyboard(),
+    },
+    {
+      text: caption,
+      options: {
+        parse_mode: 'HTML',
+        reply_markup: checklistKeyboard(),
+      },
     },
   );
 }

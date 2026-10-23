@@ -12,6 +12,7 @@ import {
   markStepDone,
 } from '../../services/lessonService.js';
 import {
+  getLessonByDay,
   getStep,
   getTotalSteps,
   type ExplainStep,
@@ -23,6 +24,7 @@ import {
 import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
 import {
   sendScreen,
+  sendPersistentDocument,
   editScreen,
   sendEphemeral,
   addCleanupMessage,
@@ -71,9 +73,9 @@ function nextStepKeyboard(day: number, nextStep: number): InlineKeyboard {
     .text('🏠 На главную', 'main_menu');
 }
 
-function doneKeyboard(): InlineKeyboard {
+function doneKeyboard(day?: number): InlineKeyboard {
   return new InlineKeyboard()
-    .text('🏆 Завершить урок', 'lessonDone')
+    .text('🏆 Завершить урок', day ? `lessonDone:${day}` : 'lessonDone')
     .row()
     .text('🏠 На главную', 'main_menu');
 }
@@ -154,32 +156,12 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   // Отправляем медиафайлы текущего шага: mp3 (голосовое сообщение) или mp4 (видео-кружок)
   await sendStepMedia(ctx, step);
 
-  // Отправляем PDF для дня (только на первом шаге)
-  if (stepIndex === 0) {
-    const lesson = (await import('../../content/course.js')).getLessonByDay(day);
-    if (lesson?.pdfFile) {
-      const pdfPath = path.resolve(lesson.pdfFile);
-      if (fs.existsSync(pdfPath)) {
-        try {
-          const sentPdf = await ctx.replyWithDocument(new InputFile(pdfPath, `day${String(day).padStart(2, '0')}.pdf`), {
-            caption: `📄 Конспект урока — День ${day}`,
-          });
-          if (sentPdf?.message_id) {
-            addCleanupMessage(ctx, sentPdf.message_id);
-          }
-        } catch (err) {
-          logger.warn({ err, pdfPath }, 'Не удалось отправить PDF');
-        }
-      }
-    }
-  }
-
   if (step.type === 'explain') {
     const text = formatExplainStep(step, day, stepIndex, total);
     const isLast = stepIndex === total - 1;
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
-      reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
+      reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
       skipCleanup: true,
     });
 
@@ -305,7 +287,7 @@ export async function handleChoiceCallback(
     const text = `${result.feedback}\n\n${result.explanation}`;
     await sendScreen(ctx, text, {
       parse_mode: 'HTML',
-      reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
+      reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
     });
   } else {
     // Неверно — обновляем этот же экран с подсказкой, кнопки остаются
@@ -356,27 +338,49 @@ export async function handleHintCallback(ctx: BotContext, day: number, stepIndex
 
 // ─── Callback: урок завершён ──────────────────────────────────────────────────
 
-export async function handleLessonDone(ctx: BotContext): Promise<void> {
+export async function handleLessonDone(ctx: BotContext, explicitDay?: number): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
   await ctx.answerCallbackQuery();
 
   const access = getCourseAccess(telegramId);
   if (!access) return;
-  const day = access.current_day;
+  const day = explicitDay ?? access.current_day;
 
   // Помечаем последний шаг
   const total = getTotalSteps(day);
   markStepDone(telegramId, day, total - 1);
 
-  await sendScreen(
-    ctx,
-    `🎉 <b>Урок ${day} завершён!</b>\n\nОтличная работа! Следующий урок придёт завтра по расписанию.`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: mainMenuKeyboard(true),
-    },
-  );
+  const doneText = `🎉 <b>Урок ${day} завершён!</b>\n\nОтличная работа! Следующий урок придёт завтра по расписанию.`;
+  const lesson = getLessonByDay(day);
+  const pdfPath = lesson?.pdfFile ? path.resolve(lesson.pdfFile) : null;
+
+  if (pdfPath && fs.existsSync(pdfPath)) {
+    await sendPersistentDocument(
+      ctx,
+      new InputFile(pdfPath, `day${String(day).padStart(2, '0')}.pdf`),
+      {
+        caption: `📄 <b>Конспект урока — День ${day}: ${lesson?.title ?? ''}</b>\nСохрани себе, чтобы шпаргалка всегда была под рукой!`,
+        parse_mode: 'HTML',
+      },
+      {
+        text: doneText,
+        options: {
+          parse_mode: 'HTML',
+          reply_markup: mainMenuKeyboard(true),
+        },
+      },
+    );
+  } else {
+    await sendScreen(
+      ctx,
+      doneText,
+      {
+        parse_mode: 'HTML',
+        reply_markup: mainMenuKeyboard(true),
+      },
+    );
+  }
   logger.info({ telegramId, day }, 'Урок завершён');
 }
 
@@ -413,7 +417,7 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
       `✅ Ответ сохранён!\n\n💡 Пример: <i>${step.exampleAnswer}</i>`,
       {
         parse_mode: 'HTML',
-        reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
+        reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
       },
     );
   } else {
@@ -427,7 +431,7 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
         `${result.feedback}\n\n${result.explanation}`,
         {
           parse_mode: 'HTML',
-          reply_markup: isLast ? doneKeyboard() : nextStepKeyboard(day, stepIndex + 1),
+          reply_markup: isLast ? doneKeyboard(day) : nextStepKeyboard(day, stepIndex + 1),
         },
       );
     } else {

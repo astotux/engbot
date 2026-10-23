@@ -22,61 +22,79 @@ const { upsertUser } = await import('../src/db/repositories/users.js');
 const { createCourseAccess, startCourse } = await import('../src/db/repositories/courseAccess.js');
 const { scheduleLessonDelivery, getPendingDeliveries, markLessonSent, getLessonDelivery } = await import('../src/db/repositories/lessons.js');
 const { checkStepAnswer, checkChoiceAnswer, scheduleAllLessons, getUserProgress, getOrInitStepProgress, markStepDone } = await import('../src/services/lessonService.js');
+const { LESSONS } = await import('../src/content/course.js');
+
+function findStepByType<T extends 'input' | 'free' | 'choice'>(type: T) {
+  for (const lesson of LESSONS) {
+    for (let i = 0; i < lesson.steps.length; i++) {
+      const s = lesson.steps[i];
+      if (s.type === type) {
+        return { day: lesson.day, stepIndex: i, step: s as Extract<(typeof lesson.steps)[number], { type: T }> };
+      }
+    }
+  }
+  throw new Error(`Step of type ${type} not found`);
+}
 
 describe('checkStepAnswer', () => {
+  const inputTarget = findStepByType('input');
+  const validAnswer = inputTarget.step.answerKey[0];
+  const freeTarget = findStepByType('free');
+
   it('принимает правильный input-ответ', () => {
-    // День 3, шаг 3: input с answerKey ['am', 'i am from moscow', "i'm from moscow"]
-    const result = checkStepAnswer(3, 3, 'am');
+    const result = checkStepAnswer(inputTarget.day, inputTarget.stepIndex, validAnswer);
     expect(result.isCorrect).toBe(true);
   });
 
   it('нечувствителен к регистру', () => {
-    const result = checkStepAnswer(3, 3, 'AM');
+    const result = checkStepAnswer(inputTarget.day, inputTarget.stepIndex, validAnswer.toUpperCase());
     expect(result.isCorrect).toBe(true);
   });
 
   it('нечувствителен к лишним пробелам', () => {
-    const result = checkStepAnswer(3, 3, '  am  ');
+    const result = checkStepAnswer(inputTarget.day, inputTarget.stepIndex, `  ${validAnswer}  `);
     expect(result.isCorrect).toBe(true);
   });
 
-  it('принимает полный вариант ответа', () => {
-    const result = checkStepAnswer(3, 3, "I'm from Moscow.");
+  it('принимает ответ со знаками препинания в конце', () => {
+    const result = checkStepAnswer(inputTarget.day, inputTarget.stepIndex, `${validAnswer}!`);
     expect(result.isCorrect).toBe(true);
   });
 
   it('отклоняет неверный ответ', () => {
-    const result = checkStepAnswer(3, 3, 'are');
+    const result = checkStepAnswer(inputTarget.day, inputTarget.stepIndex, '__definitely_wrong_answer__');
     expect(result.isCorrect).toBe(false);
   });
 
   it('свободный ответ возвращает isCorrect=null', () => {
-    // День 1, шаг 5 — free
-    const result = checkStepAnswer(1, 5, 'любой текст');
+    const result = checkStepAnswer(freeTarget.day, freeTarget.stepIndex, 'любой текст');
     expect(result.isCorrect).toBeNull();
   });
 });
 
 describe('checkChoiceAnswer', () => {
+  const choiceTarget = findStepByType('choice');
+  const correctIdx = choiceTarget.step.correctIndex;
+  const wrongIdx = (correctIdx + 1) % choiceTarget.step.options.length;
+
   it('принимает правильный выбор', () => {
-    // День 1, шаг 1 (choice: correctIndex=1 "Hi")
-    const result = checkChoiceAnswer(1, 1, 1);
+    const result = checkChoiceAnswer(choiceTarget.day, choiceTarget.stepIndex, correctIdx);
     expect(result.isCorrect).toBe(true);
   });
 
   it('отклоняет неверный выбор', () => {
-    const result = checkChoiceAnswer(1, 1, 0);
+    const result = checkChoiceAnswer(choiceTarget.day, choiceTarget.stepIndex, wrongIdx);
     expect(result.isCorrect).toBe(false);
   });
 
   it('возвращает подсказку при неверном ответе', () => {
-    const result = checkChoiceAnswer(1, 1, 0);
+    const result = checkChoiceAnswer(choiceTarget.day, choiceTarget.stepIndex, wrongIdx);
     expect(result.hint).toBeTruthy();
     expect(result.explanation).toBe('');
   });
 
   it('возвращает объяснение при правильном ответе', () => {
-    const result = checkChoiceAnswer(1, 1, 1);
+    const result = checkChoiceAnswer(choiceTarget.day, choiceTarget.stepIndex, correctIdx);
     expect(result.explanation).toBeTruthy();
   });
 });
