@@ -7,6 +7,10 @@ import { setBotInstance } from './bot/botInstance.js';
 import { createHttpServer, startHttpServer, processOutbox } from './http/server.js';
 import { startScheduler, stopScheduler } from './scheduler/lessonScheduler.js';
 import { startReminderScheduler, stopReminderScheduler } from './scheduler/reminderScheduler.js';
+import {
+  startPaymentReconciliationScheduler,
+  stopPaymentReconciliationScheduler,
+} from './scheduler/paymentReconciliationScheduler.js';
 
 async function main(): Promise<void> {
   logger.info('Запуск бота...');
@@ -22,6 +26,7 @@ async function main(): Promise<void> {
 
   startScheduler(bot);
   startReminderScheduler(bot);
+  startPaymentReconciliationScheduler(bot);
 
   await processOutbox(bot);
 
@@ -49,6 +54,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Получен сигнал завершения');
     stopScheduler();
     stopReminderScheduler();
+    stopPaymentReconciliationScheduler();
     await bot.stop();
     closeDb();
     logger.info('Бот остановлен');

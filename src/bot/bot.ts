@@ -11,7 +11,12 @@ import {
   handleCancel,
   handleDisableReminders,
 } from './handlers/menuHandler.js';
-import { handleCourseInfo, handleBuyCourse, handleStartCourse } from './handlers/courseHandler.js';
+import {
+  handleCourseInfo,
+  handleBuyCourse,
+  handleStartCourse,
+  handleCheckPayment,
+} from './handlers/courseHandler.js';
 import {
   handleLesson,
   handleProgress,
@@ -38,7 +43,7 @@ import {
   handleSetMode,
 } from './handlers/vocabularyHandler.js';
 import { handleAdminCommand } from '../admin/adminHandlers.js';
-import { getCourseAccess, pauseCourse } from '../db/repositories/courseAccess.js';
+import { getCourseAccess, pauseCourse, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 import { mainMenuKeyboard } from './keyboards/mainMenu.js';
 import { sendScreen, editScreen, deleteUserMessage } from './sendHelper.js';
@@ -79,11 +84,7 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery('main_menu', async (ctx) => {
     await ctx.answerCallbackQuery();
     const telegramId = ctx.from?.id;
-    const hasCourse = (() => {
-      if (!telegramId) return false;
-      const access = getCourseAccess(telegramId);
-      return !!access && (access.status === 'active' || access.status === 'completed');
-    })();
+    const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
     await editScreen(ctx, '📱 Главное меню\n\nВыбери нужный раздел:', {
       reply_markup: mainMenuKeyboard(hasCourse),
     });
@@ -100,6 +101,10 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery('buy_course', handleBuyCourse);
   bot.callbackQuery('show_course_info', handleCourseInfo);
   bot.callbackQuery('start_course', handleStartCourse);
+  bot.callbackQuery(/^check_payment(?::(.+))?$/, async (ctx) => {
+    const paymentId = ctx.match?.[1];
+    await handleCheckPayment(ctx, paymentId);
+  });
   bot.callbackQuery('show_checklist', async (ctx) => {
     await ctx.answerCallbackQuery();
     await sendFreeChecklist(ctx);
@@ -111,11 +116,7 @@ export function createBot(): Bot<BotContext> {
     await ctx.answerCallbackQuery();
     const { InlineKeyboard } = await import('grammy');
     const telegramId = ctx.from?.id;
-    const hasCourse = (() => {
-      if (!telegramId) return false;
-      const access = getCourseAccess(telegramId);
-      return !!access && (access.status === 'active' || access.status === 'completed');
-    })();
+    const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
 
     const kb = new InlineKeyboard();
     if (!hasCourse) {
@@ -306,11 +307,7 @@ export function createBot(): Bot<BotContext> {
   bot.on('message:text', async (ctx) => {
     deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
-    const hasCourse = (() => {
-      if (!telegramId) return false;
-      const access = getCourseAccess(telegramId);
-      return !!access && (access.status === 'active' || access.status === 'completed');
-    })();
+    const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
     await sendScreen(ctx, '🤔 Не понимаю это сообщение.\n\nИспользуй кнопки меню:', {
       reply_markup: mainMenuKeyboard(hasCourse),
     });
@@ -319,11 +316,7 @@ export function createBot(): Bot<BotContext> {
   bot.on('message', async (ctx) => {
     deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
-    const hasCourse = (() => {
-      if (!telegramId) return false;
-      const access = getCourseAccess(telegramId);
-      return !!access && (access.status === 'active' || access.status === 'completed');
-    })();
+    const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
     await sendScreen(ctx, '🤔 Используй кнопки меню:', {
       reply_markup: mainMenuKeyboard(hasCourse),
     });

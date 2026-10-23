@@ -1,6 +1,6 @@
 import type { BotContext } from '../context.js';
 import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
-import { getCourseAccess } from '../../db/repositories/courseAccess.js';
+import { hasUserCourseAccess } from '../../db/repositories/courseAccess.js';
 import { sendScreen, editScreen } from '../sendHelper.js';
 import { setRemindersEnabled } from '../../db/repositories/users.js';
 
@@ -24,8 +24,7 @@ const SUPPORT_TEXT = `💬 <b>Служба поддержки и заботы</b
 ✍️ <b>Напиши свой вопрос прямо в этот чат</b> — служба поддержки ответит тебе в ближайшее время.`;
 
 function hasCourseAccess(telegramId: number): boolean {
-  const access = getCourseAccess(telegramId);
-  return !!access && (access.status === 'active' || access.status === 'completed');
+  return hasUserCourseAccess(telegramId);
 }
 
 export function formatMenuText(hasCourse: boolean, firstName?: string): string {

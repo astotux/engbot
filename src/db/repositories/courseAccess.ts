@@ -21,6 +21,7 @@ const PRODUCT = 'english_30_days';
 export function createCourseAccess(
   telegramId: number,
   orderId: string | null,
+  status: CourseAccess['status'] = 'active',
 ): CourseAccess | null {
   const db = getDb();
 
@@ -30,16 +31,39 @@ export function createCourseAccess(
     )
     .get(telegramId, PRODUCT) as CourseAccess | undefined;
 
-  if (existing) return null;
+  if (existing) {
+    if (existing.status === 'pending' && status === 'active') {
+      db.prepare(`
+        UPDATE course_access
+        SET status = 'active', started_at = datetime('now'), current_day = 1,
+            send_hour = ?, send_minute = ?, order_id = COALESCE(?, order_id)
+        WHERE id = ?
+      `).run(config.lessonSendHour, config.lessonSendMinute, orderId, existing.id);
+      return getCourseAccess(telegramId) ?? null;
+    }
+    return null;
+  }
+
+  const startedAt = status === 'active' ? new Date().toISOString() : null;
+  const currentDay = status === 'active' ? 1 : 0;
+  const sendHour = status === 'active' ? config.lessonSendHour : null;
+  const sendMinute = status === 'active' ? config.lessonSendMinute : null;
 
   db.prepare(`
-    INSERT OR IGNORE INTO course_access (telegram_id, product_id, order_id)
-    VALUES (?, ?, ?)
-  `).run(telegramId, PRODUCT, orderId);
+    INSERT OR IGNORE INTO course_access (
+      telegram_id, product_id, order_id, status, started_at, current_day, send_hour, send_minute
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(telegramId, PRODUCT, orderId, status, startedAt, currentDay, sendHour, sendMinute);
 
   return db
     .prepare('SELECT * FROM course_access WHERE telegram_id = ? AND product_id = ?')
     .get(telegramId, PRODUCT) as CourseAccess | null;
+}
+
+export function hasUserCourseAccess(telegramId: number): boolean {
+  const access = getCourseAccess(telegramId);
+  return !!access && (access.status === 'active' || access.status === 'completed' || access.status === 'pending');
 }
 
 export function getCourseAccess(telegramId: number): CourseAccess | undefined {

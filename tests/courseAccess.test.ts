@@ -34,12 +34,12 @@ describe('CourseAccess repository', () => {
     upsertUser({ telegram_id: 300 });
   });
 
-  it('создаёт доступ к курсу', () => {
+  it('создаёт активный доступ к курсу', () => {
     const order = createOrder(300, 50000);
     const access = createCourseAccess(300, order.id);
     expect(access).toBeTruthy();
     expect(access?.telegram_id).toBe(300);
-    expect(access?.status).toBe('pending');
+    expect(access?.status).toBe('active');
   });
 
   it('не создаёт второй доступ для одного пользователя (идемпотентность)', () => {
@@ -49,9 +49,9 @@ describe('CourseAccess repository', () => {
     expect(second).toBeNull(); // уже существует
   });
 
-  it('активирует курс после start', () => {
+  it('активирует курс после start, если он был pending', () => {
     const order = createOrder(300, 50000);
-    createCourseAccess(300, order.id);
+    createCourseAccess(300, order.id, 'pending');
     startCourse(300);
     const access = getCourseAccess(300);
     expect(access?.status).toBe('active');

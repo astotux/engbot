@@ -2,7 +2,7 @@ import { InputFile, InlineKeyboard } from 'grammy';
 import fs from 'fs';
 import path from 'path';
 import type { BotContext } from '../context.js';
-import { getCourseAccess } from '../../db/repositories/courseAccess.js';
+import { getCourseAccess, startCourse } from '../../db/repositories/courseAccess.js';
 import {
   getLessonForUser,
   getUserProgress,
@@ -10,6 +10,7 @@ import {
   checkChoiceAnswer,
   getOrInitStepProgress,
   markStepDone,
+  scheduleAllLessons,
 } from '../../services/lessonService.js';
 import {
   getLessonByDay,
@@ -336,12 +337,9 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
     return;
   }
   if (access.status === 'pending') {
-    await sendScreen(
-      ctx,
-      '⏳ Доступ обрабатывается. После подтверждения оплаты ты получишь уведомление.',
-      { reply_markup: mainMenuKeyboard(false) },
-    );
-    return;
+    // Если курс оплачен, но ещё не стартован — автоматически активируем и планируем уроки
+    startCourse(telegramId);
+    scheduleAllLessons(telegramId);
   }
   if (access.status === 'revoked') {
     await sendScreen(

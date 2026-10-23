@@ -19,25 +19,35 @@ export function saveWebhookEvent(id: string, eventType: string, payload: string)
   if (existing) return false;
 
   db.prepare(`
-    INSERT INTO webhook_events (id, event_type, payload)
-    VALUES (?, ?, ?)
+    INSERT INTO webhook_events (id, event_type, payload, processed)
+    VALUES (?, ?, ?, 0)
   `).run(id, eventType, payload);
   return true;
 }
 
-export function markWebhookProcessed(id: string, error?: string): void {
+export function markWebhookProcessed(id: string): void {
   getDb()
     .prepare(`
       UPDATE webhook_events
-      SET processed = 1, processed_at = datetime('now'), error = ?
+      SET processed = 1, processed_at = datetime('now'), error = NULL
       WHERE id = ?
     `)
-    .run(error ?? null, id);
+    .run(id);
+}
+
+export function markWebhookFailed(id: string, error: string): void {
+  getDb()
+    .prepare(`
+      UPDATE webhook_events
+      SET processed = 0, error = ?
+      WHERE id = ?
+    `)
+    .run(error, id);
 }
 
 export function isWebhookProcessed(id: string): boolean {
   const row = getDb()
     .prepare('SELECT processed FROM webhook_events WHERE id = ?')
     .get(id) as { processed: number } | undefined;
-  return !!row?.processed;
+  return row?.processed === 1;
 }

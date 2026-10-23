@@ -74,3 +74,19 @@ export function getActivePaymentForUser(telegramId: number): Payment | undefined
     )
     .get(telegramId) as Payment | undefined;
 }
+
+export function getPendingPaymentsOlderThan(
+  minAgeMinutes = 5,
+  maxAgeHours = 48,
+): Payment[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM payments
+       WHERE status = 'pending'
+         AND yookassa_id IS NOT NULL
+         AND created_at <= datetime('now', '-' || ? || ' minutes')
+         AND created_at >= datetime('now', '-' || ? || ' hours')
+       ORDER BY created_at ASC`,
+    )
+    .all(minAgeMinutes, maxAgeHours) as Payment[];
+}
