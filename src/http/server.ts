@@ -7,6 +7,8 @@ import { handleWebhookEvent } from '../services/purchaseService.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendCourseAccessMessage } from '../bot/handlers/courseHandler.js';
 import { getPendingOutboxEvents, markOutboxProcessed, markOutboxFailed } from '../db/repositories/outbox.js';
+import { hasUserCourseAccess } from '../db/repositories/courseAccess.js';
+import { hasSucceededPaymentForUser } from '../db/repositories/payments.js';
 
 export function createHttpServer(bot: Bot<BotContext>): express.Application {
   const app = express();
@@ -73,10 +75,20 @@ export async function processOutbox(bot: Bot<BotContext>): Promise<void> {
       if (event.event_type === 'course_access_granted' && payload.telegramId) {
         await sendCourseAccessMessage(bot, payload.telegramId);
       } else if (event.event_type === 'payment_canceled' && payload.telegramId) {
-        await bot.api.sendMessage(
-          payload.telegramId,
-          '❌ Оплата отменена. Если это ошибка, попробуй снова через /course.',
-        );
+        // Не отправляем уведомление об отмене, если пользователь уже оплатил курс
+        const hasAccess = hasUserCourseAccess(payload.telegramId);
+        const hasSucceeded = hasSucceededPaymentForUser(payload.telegramId);
+        if (!hasAccess && !hasSucceeded) {
+          await bot.api.sendMessage(
+            payload.telegramId,
+            '❌ Оплата отменена. Если это ошибка, попробуй снова через /course.',
+          );
+        } else {
+          logger.info(
+            { telegramId: payload.telegramId, eventId: event.id },
+            'Outbox: уведомление payment_canceled пропущено, так как пользователь уже оплатил курс',
+          );
+        }
       }
       markOutboxProcessed(event.id);
     } catch (err) {

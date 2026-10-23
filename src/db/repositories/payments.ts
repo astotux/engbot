@@ -75,6 +75,22 @@ export function getActivePaymentForUser(telegramId: number): Payment | undefined
     .get(telegramId) as Payment | undefined;
 }
 
+export function hasSucceededPaymentForUser(telegramId: number): boolean {
+  const row = getDb()
+    .prepare("SELECT 1 FROM payments WHERE telegram_id = ? AND status = 'succeeded' LIMIT 1")
+    .get(telegramId);
+  return !!row;
+}
+
+export function hasNewerPendingPaymentForUser(telegramId: number, createdAt: string): boolean {
+  const row = getDb()
+    .prepare(
+      "SELECT 1 FROM payments WHERE telegram_id = ? AND status = 'pending' AND created_at > ? LIMIT 1",
+    )
+    .get(telegramId, createdAt);
+  return !!row;
+}
+
 export function getPendingPaymentsOlderThan(
   minAgeMinutes = 5,
   maxAgeHours = 48,

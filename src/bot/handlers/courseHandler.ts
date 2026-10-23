@@ -176,6 +176,13 @@ export async function handleCheckPayment(ctx: BotContext, explicitPaymentId?: st
     }
 
     if (result.status === 'canceled') {
+      if (hasUserCourseAccess(telegramId)) {
+        await ctx.answerCallbackQuery('Курс уже оплачен и доступен!');
+        await editScreen(ctx, '✅ У тебя уже есть полный доступ к курсу!\n\nВыбери нужный раздел:', {
+          reply_markup: mainMenuKeyboard(true),
+        });
+        return;
+      }
       await ctx.answerCallbackQuery('Платёж был отменён');
       await editScreen(
         ctx,

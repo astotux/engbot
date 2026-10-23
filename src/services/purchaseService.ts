@@ -7,9 +7,11 @@ import {
   getPaymentByYookassaId,
   getPaymentById,
   getPendingPaymentsOlderThan,
+  hasSucceededPaymentForUser,
+  hasNewerPendingPaymentForUser,
   type Payment,
 } from '../db/repositories/payments.js';
-import { createCourseAccess } from '../db/repositories/courseAccess.js';
+import { createCourseAccess, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { addOutboxEvent } from '../db/repositories/outbox.js';
 import {
   saveWebhookEvent,
@@ -197,7 +199,22 @@ async function handlePaymentCanceled(yookassaId: string): Promise<void> {
     updateOrderStatus(payment.order_id, 'canceled');
   })();
 
-  addOutboxEvent('payment_canceled', { telegramId: payment.telegram_id });
+  // Если у пользователя уже есть доступ к курсу (например, вторая попытка оплаты прошла успешно),
+  // или есть другой успешный платёж, или прямо сейчас оплачивается более новая попытка —
+  // не отправляем сообщение об отмене старого платежа
+  const hasAccess = hasUserCourseAccess(payment.telegram_id);
+  const hasSucceeded = hasSucceededPaymentForUser(payment.telegram_id);
+  const hasNewerPending = hasNewerPendingPaymentForUser(payment.telegram_id, payment.created_at);
+
+  if (!hasAccess && !hasSucceeded && !hasNewerPending) {
+    addOutboxEvent('payment_canceled', { telegramId: payment.telegram_id });
+  } else {
+    logger.info(
+      { yookassaId, telegramId: payment.telegram_id, hasAccess, hasSucceeded, hasNewerPending },
+      'Уведомление об отмене старого платежа пропущено (курс уже оплачен или есть более новая попытка)',
+    );
+  }
+
   logger.info({ yookassaId, telegramId: payment.telegram_id }, 'Платёж отменён');
 }
 

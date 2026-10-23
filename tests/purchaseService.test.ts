@@ -43,6 +43,8 @@ const {
 const { getCourseAccess } = await import('../src/db/repositories/courseAccess.js');
 const { getPaymentByYookassaId, getPaymentById } = await import('../src/db/repositories/payments.js');
 const { isWebhookProcessed } = await import('../src/db/repositories/webhookEvents.js');
+const { getPendingOutboxEvents, addOutboxEvent } = await import('../src/db/repositories/outbox.js');
+const { processOutbox } = await import('../src/http/server.js');
 const { getYookassaPayment } = await import('../src/payments/yookassa.js');
 const { config } = await import('../src/config/index.js');
 
@@ -256,5 +258,93 @@ describe('PurchaseService', () => {
     expect(access?.status).toBe('active');
 
     (config.yookassa as { enabled: boolean }).enabled = false;
+  });
+
+  it('не отправляет уведомление об отмене платежа, если вторая попытка оплаты прошла успешно', async () => {
+    // 1. Первая попытка оплаты (будет отменена позже)
+    const { paymentId: paymentId1 } = await initiatePurchase(400);
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-attempt-1', created_at = datetime('now', '-60 minutes') WHERE id = ?").run(paymentId1);
+
+    // 2. Вторая попытка оплаты (прошла успешно)
+    const { paymentId: paymentId2 } = await initiatePurchase(400);
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-attempt-2' WHERE id = ?").run(paymentId2);
+
+    // Вебхук об успешной оплате второй попытки
+    await handleWebhookEvent({
+      type: 'notification',
+      event: 'payment.succeeded',
+      object: { id: 'yk-attempt-2', status: 'succeeded', amount: { value: '500.00', currency: 'RUB' } },
+    }, 'evt-success-attempt-2');
+
+    // Проверяем, что доступ выдан
+    expect(getCourseAccess(400)?.status).toBe('active');
+
+    // Очищаем события outbox от выдачи курса для чистоты проверки
+    testDb.prepare("DELETE FROM outbox").run();
+
+    // 3. Через час от ЮKassa приходит вебхук об отмене ПЕРВОЙ попытки
+    await handleWebhookEvent({
+      type: 'notification',
+      event: 'payment.canceled',
+      object: { id: 'yk-attempt-1', status: 'canceled', amount: { value: '500.00', currency: 'RUB' } },
+    }, 'evt-cancel-attempt-1');
+
+    // Проверяем, что первая попытка в БД помечена как canceled
+    const p1 = getPaymentById(paymentId1);
+    expect(p1?.status).toBe('canceled');
+
+    // И ГЛАВНОЕ: в outbox НЕ появилось событие payment_canceled!
+    const outboxEvents = getPendingOutboxEvents();
+    const cancelEvent = outboxEvents.find((e) => e.event_type === 'payment_canceled');
+    expect(cancelEvent).toBeUndefined();
+  });
+
+  it('не отправляет уведомление об отмене старого платежа, если прямо сейчас есть более новый ожидающий платёж', async () => {
+    // 1. Первая попытка оплаты (создана 60 минут назад)
+    const { paymentId: paymentId1 } = await initiatePurchase(400);
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-old-pending', created_at = datetime('now', '-60 minutes') WHERE id = ?").run(paymentId1);
+
+    // 2. Вторая попытка оплаты (создана 5 минут назад, pending)
+    const { paymentId: paymentId2 } = await initiatePurchase(400);
+    testDb.prepare("UPDATE payments SET yookassa_id = 'yk-new-pending', created_at = datetime('now', '-5 minutes') WHERE id = ?").run(paymentId2);
+
+    // Очищаем outbox
+    testDb.prepare("DELETE FROM outbox").run();
+
+    // 3. Отменяется старый платёж
+    await handleWebhookEvent({
+      type: 'notification',
+      event: 'payment.canceled',
+      object: { id: 'yk-old-pending', status: 'canceled', amount: { value: '500.00', currency: 'RUB' } },
+    }, 'evt-cancel-old');
+
+    // В outbox НЕ должно быть события об отмене, т.к. пользователь прямо сейчас оплачивает новую попытку
+    const outboxEvents = getPendingOutboxEvents();
+    const cancelEvent = outboxEvents.find((e) => e.event_type === 'payment_canceled');
+    expect(cancelEvent).toBeUndefined();
+  });
+
+  it('processOutbox не отправляет сообщение об отмене, если к моменту отправки курс уже оплачен', async () => {
+    // Добавляем старое событие отмены в outbox
+    addOutboxEvent('payment_canceled', { telegramId: 400 });
+
+    // Но у пользователя уже есть доступ к курсу
+    testDb.prepare(`
+      INSERT INTO course_access (telegram_id, product_id, status, current_day)
+      VALUES (400, 'english_30_days', 'active', 1)
+    `).run();
+
+    const mockSendMessage = vi.fn().mockResolvedValue(true);
+    const mockBot = {
+      api: { sendMessage: mockSendMessage },
+    } as any;
+
+    await processOutbox(mockBot);
+
+    // Сообщение НЕ должно быть отправлено пользователю
+    expect(mockSendMessage).not.toHaveBeenCalled();
+
+    // Но событие в outbox должно быть помечено как обработанное (не висит вечно)
+    expect(getPendingOutboxEvents()).toHaveLength(0);
   });
 });
