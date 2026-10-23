@@ -16,6 +16,7 @@ export function vocabMenuKeyboard(): InlineKeyboard {
     .text('🔁 Повторить ошибки', 'vocab:review_errors').row()
     .text('📊 Мой прогресс', 'vocab:stats').row()
     .text('⚙️ Настройки', 'vocab:settings').row()
+    .text('🎮 Мини-игры', 'games:menu')
     .text('🏠 На главную', 'main_menu');
 }
 

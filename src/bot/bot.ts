@@ -45,6 +45,23 @@ import {
   handleSetDirection,
   handleSetMode,
 } from './handlers/vocabularyHandler.js';
+import {
+  handleNotesMenu,
+  handleNotesDownload,
+  handleLessonTimeMenu,
+  handleSetLessonTime,
+} from './handlers/notesAndTimeHandler.js';
+import {
+  handleMinigamesMenu,
+  handlePhraseBuilderStart,
+  handlePhraseBuilderPick,
+  handlePhraseBuilderUndo,
+  handlePhraseBuilderClear,
+  handlePhraseBuilderHint,
+  handleDialogueMenu,
+  handleDialogueStart,
+  handleDialogueAnswer,
+} from './handlers/minigamesHandler.js';
 import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { setUserBlocked } from '../db/repositories/users.js';
@@ -76,6 +93,9 @@ export function createBot(): Bot<BotContext> {
   bot.command('lesson', handleLesson);
   bot.command('progress', handleProgress);
   bot.command('vocab', handleVocabMenu);
+  bot.command('notes', async (ctx) => handleNotesMenu(ctx, 0));
+  bot.command('time', handleLessonTimeMenu);
+  bot.command('games', handleMinigamesMenu);
 
   for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_report', 'admin_help']) {
     bot.command(cmd, handleAdminCommand);
@@ -89,6 +109,8 @@ export function createBot(): Bot<BotContext> {
     if (ctx.session) {
       ctx.session.awaitingStep = undefined;
       ctx.session.vocabAwaitingAnswer = undefined;
+      ctx.session.phraseBuilderState = undefined;
+      ctx.session.dialogueState = undefined;
     }
     const telegramId = ctx.from?.id;
     const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
@@ -103,6 +125,52 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery('support', async (ctx) => {
     await ctx.answerCallbackQuery();
     await handleSupport(ctx);
+  });
+
+  // ── Конспекты (со слайдером) и Выбор времени уроков ────────────────────────
+  bot.callbackQuery('my_notes', async (ctx) => {
+    await handleNotesMenu(ctx, 0);
+  });
+  bot.callbackQuery(/^notes:slide:(\d+)$/, async (ctx) => {
+    await handleNotesMenu(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery(/^notes:download:(\d+)$/, async (ctx) => {
+    await handleNotesDownload(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery('notes:noop', async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery('lesson_time', handleLessonTimeMenu);
+  bot.callbackQuery(/^lesson_time:set:(\d+)$/, async (ctx) => {
+    await handleSetLessonTime(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery('lesson_time:noop', async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  // ── Мини-игры (Словарный тренажёр, Конструктор фраз, Тренажёр диалогов) ────
+  bot.callbackQuery('games:menu', handleMinigamesMenu);
+  bot.callbackQuery('games:builder', async (ctx) => {
+    await handlePhraseBuilderStart(ctx);
+  });
+  bot.callbackQuery(/^games:builder:(\d+)$/, async (ctx) => {
+    await handlePhraseBuilderStart(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery(/^games:b_pick:(\d+)$/, async (ctx) => {
+    await handlePhraseBuilderPick(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery('games:b_undo', handlePhraseBuilderUndo);
+  bot.callbackQuery('games:b_clear', handlePhraseBuilderClear);
+  bot.callbackQuery('games:b_hint', handlePhraseBuilderHint);
+
+  bot.callbackQuery('games:dialogue', handleDialogueMenu);
+  bot.callbackQuery(/^games:d_start:([a-zA-Z0-9_-]+)$/, async (ctx) => {
+    await handleDialogueStart(ctx, ctx.match[1]);
+  });
+  bot.callbackQuery(/^games:d_ans:([a-zA-Z0-9_-]+):(\d+):(\d+)$/, async (ctx) => {
+    const m = ctx.match as RegExpMatchArray;
+    await handleDialogueAnswer(ctx, m[1], Number(m[2]), Number(m[3]));
   });
 
   // Курс

@@ -401,6 +401,22 @@ export function countCompletedSessions(telegramId: number): number {
   return row.cnt;
 }
 
+export function hasFlawlessQuizSession(telegramId: number): boolean {
+  const row = getDb()
+    .prepare(`
+      SELECT id FROM vocabulary_sessions
+      WHERE telegram_id = ?
+        AND status = 'completed'
+        AND total_questions >= 10
+        AND correct_count >= 10
+        AND COALESCE(wrong_count, 0) = 0
+        AND COALESCE(skipped_count, 0) = 0
+      LIMIT 1
+    `)
+    .get(telegramId) as { id: number } | undefined;
+  return !!row;
+}
+
 // ─── Вопросы сессии ───────────────────────────────────────────────────────────
 
 export function insertQuestion(

@@ -6,6 +6,7 @@ import { getCourseAccess, startCourse } from '../../db/repositories/courseAccess
 import {
   getLessonForUser,
   getUserProgress,
+  getUserAchievements,
   checkStepAnswer,
   checkChoiceAnswer,
   getOrInitStepProgress,
@@ -638,6 +639,21 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
 
 // ─── /progress ───────────────────────────────────────────────────────────────
 
+export function formatAchievementsSection(telegramId: number): string {
+  const badges = getUserAchievements(telegramId);
+  const unlockedCount = badges.filter((b) => b.unlocked).length;
+
+  let text = `\n🏅 <b>Витрина значков (${unlockedCount} из ${badges.length}):</b>\n`;
+  for (const b of badges) {
+    if (b.unlocked) {
+      text += `${b.icon} <b>«${b.title}»</b> — ${b.description} ✅\n`;
+    } else {
+      text += `🔒 <b>«${b.title}»</b> — ${b.description} <i>(${b.progressText})</i>\n`;
+    }
+  }
+  return text;
+}
+
 export async function handleProgress(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
@@ -646,11 +662,13 @@ export async function handleProgress(ctx: BotContext): Promise<void> {
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
 
   const progress = getUserProgress(telegramId);
+  const achievementsText = formatAchievementsSection(telegramId);
+
   if (!progress) {
     await sendScreen(
       ctx,
-      '📊 Ты ещё не начал(а) курс. Выбери нужный раздел:',
-      { reply_markup: mainMenuKeyboard(false) },
+      `📊 <b>Твой прогресс</b>\n\nТы ещё не начал(а) курс.\n${achievementsText}\nВыбери нужный раздел:`,
+      { parse_mode: 'HTML', reply_markup: mainMenuKeyboard(false) },
     );
     return;
   }
@@ -674,11 +692,13 @@ export async function handleProgress(ctx: BotContext): Promise<void> {
     `📚 Осталось: ${progress.remaining}\n`;
 
   if (progress.completedDays.length > 0) {
-    progressText += `\n🏆 Пройденные дни: ${progress.completedDays.slice(-10).join(', ')}${progress.completedDays.length > 10 ? '...' : ''}`;
+    progressText += `\n🏆 Пройденные дни: ${progress.completedDays.slice(-10).join(', ')}${progress.completedDays.length > 10 ? '...' : ''}\n`;
   }
 
+  progressText += achievementsText;
+
   if (progress.status === 'completed') {
-    progressText += `\n\n🎉 <b>Поздравляем с завершением курса!</b>`;
+    progressText += `\n🎉 <b>Поздравляем с завершением курса!</b>`;
   }
 
   await sendScreen(ctx, progressText, {

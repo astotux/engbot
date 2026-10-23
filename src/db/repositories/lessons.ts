@@ -45,6 +45,33 @@ export function scheduleLessonDelivery(
     .get(telegramId, dayNumber) as LessonDelivery | null;
 }
 
+export function updatePendingLessonDelivery(
+  telegramId: number,
+  dayNumber: number,
+  scheduledAt: string,
+): void {
+  const db = getDb();
+  const existing = db
+    .prepare('SELECT * FROM lesson_deliveries WHERE telegram_id = ? AND day_number = ?')
+    .get(telegramId, dayNumber) as LessonDelivery | undefined;
+
+  if (!existing) {
+    db.prepare(`
+      INSERT OR IGNORE INTO lesson_deliveries (telegram_id, day_number, scheduled_at)
+      VALUES (?, ?, ?)
+    `).run(telegramId, dayNumber, scheduledAt);
+    return;
+  }
+
+  if (existing.status === 'pending') {
+    db.prepare(`
+      UPDATE lesson_deliveries
+      SET scheduled_at = ?
+      WHERE telegram_id = ? AND day_number = ? AND status = 'pending'
+    `).run(scheduledAt, telegramId, dayNumber);
+  }
+}
+
 export function markLessonSent(telegramId: number, dayNumber: number): void {
   getDb()
     .prepare(`

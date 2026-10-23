@@ -12,14 +12,20 @@ export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
     kb.text('📖 Мой урок дня', 'my_lesson')
       .text('📊 Мой прогресс', 'my_progress')
       .row();
-    kb.text('🧠 Словарный тренажёр (A1–C2)', 'vocab:menu').row();
+    kb.text('📂 Мои конспекты', 'my_notes')
+      .text('⏰ Выбрать время уроков', 'lesson_time')
+      .row();
+    kb.text('🎮 Мини-игры', 'games:menu').row();
     kb.text('📚 Программа курса', 'show_program')
       .text('💬 Поддержка', 'support');
   } else {
     // Новый пользователь / гость
     kb.text('✨ Получить курс за 500 ₽', 'buy_course').row();
     kb.text('🎁 Бесплатный чек-лист', 'show_checklist')
-      .text('🧠 Словарный тренажёр', 'vocab:menu')
+      .text('📂 Мои конспекты', 'my_notes')
+      .row();
+    kb.text('🎮 Мини-игры', 'games:menu')
+      .text('⏰ Выбрать время уроков', 'lesson_time')
       .row();
     kb.text('📚 О курсе и программа', 'show_course_info')
       .text('💬 Поддержка', 'support');

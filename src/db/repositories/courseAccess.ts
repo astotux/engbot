@@ -108,6 +108,16 @@ export function pauseCourse(telegramId: number, paused: boolean): void {
     .run(paused ? 1 : 0, telegramId, PRODUCT);
 }
 
+export function updateCourseSendTime(telegramId: number, sendHour: number, sendMinute = 0): void {
+  getDb()
+    .prepare(`
+      UPDATE course_access
+      SET send_hour = ?, send_minute = ?
+      WHERE telegram_id = ? AND product_id = ?
+    `)
+    .run(sendHour, sendMinute, telegramId, PRODUCT);
+}
+
 export function revokeCourse(telegramId: number): void {
   getDb()
     .prepare("UPDATE course_access SET status = 'revoked' WHERE telegram_id = ? AND product_id = ?")

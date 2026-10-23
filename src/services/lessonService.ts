@@ -1,6 +1,7 @@
 import { getLessonByDay, getStep, getTotalSteps, type Lesson, type ChoiceStep, type InputStep } from '../content/course.js';
 import {
   scheduleLessonDelivery,
+  updatePendingLessonDelivery,
   saveSubmission,
   getCompletedDays,
 } from '../db/repositories/lessons.js';
@@ -11,25 +12,50 @@ import {
   completeAllSteps,
   getCompletedStepIndices,
 } from '../db/repositories/lessonSteps.js';
-import { getCourseAccess } from '../db/repositories/courseAccess.js';
-import { toZonedScheduledTime } from '../utils/time.js';
+import { getCourseAccess, updateCourseSendTime } from '../db/repositories/courseAccess.js';
+import { countMasteredWords, hasFlawlessQuizSession } from '../db/repositories/vocabulary.js';
+import { toZonedScheduledTime, mskHourToServerHour } from '../utils/time.js';
 import { config } from '../config/index.js';
 
-export function scheduleAllLessons(telegramId: number): void {
+function parseSqliteUtcDate(dateStr: string): Date {
+  if (dateStr.includes('T')) return new Date(dateStr);
+  return new Date(dateStr.replace(' ', 'T') + 'Z');
+}
+
+export function scheduleAllLessons(telegramId: number, forceUpdatePending = false): void {
   const access = getCourseAccess(telegramId);
   if (!access || access.status !== 'active' || !access.started_at) return;
 
-  const startDate = new Date(access.started_at);
+  const startDate = parseSqliteUtcDate(access.started_at);
   const hour = access.send_hour ?? config.lessonSendHour;
   const minute = access.send_minute ?? config.lessonSendMinute;
   const tz = config.courseTimezone;
 
   for (let day = 1; day <= 30; day++) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() + (day - 1));
+    const d = new Date(startDate.getTime() + (day - 1) * 86_400_000);
     const scheduled = toZonedScheduledTime(d, hour, minute, tz);
-    scheduleLessonDelivery(telegramId, day, scheduled.toISOString());
+    if (forceUpdatePending) {
+      updatePendingLessonDelivery(telegramId, day, scheduled.toISOString());
+    } else {
+      scheduleLessonDelivery(telegramId, day, scheduled.toISOString());
+    }
   }
+}
+
+export function setUserLessonTime(telegramId: number, mskHour: number, mskMinute = 0): {
+  mskHour: number;
+  mskMinute: number;
+  serverHour: number;
+} {
+  const clampedHour = ((Math.round(mskHour) % 24) + 24) % 24;
+  const clampedMinute = ((Math.round(mskMinute) % 60) + 60) % 60;
+  updateCourseSendTime(telegramId, clampedHour, clampedMinute);
+  scheduleAllLessons(telegramId, true);
+  return {
+    mskHour: clampedHour,
+    mskMinute: clampedMinute,
+    serverHour: mskHourToServerHour(clampedHour),
+  };
 }
 
 // ─── Проверка ответов ─────────────────────────────────────────────────────────
@@ -158,4 +184,60 @@ export function getLessonForUser(telegramId: number, day?: number): Lesson | und
   const requestedDay = day ?? access.current_day;
   if (requestedDay > access.current_day) return undefined;
   return getLessonByDay(requestedDay);
+}
+
+// ─── Достижения (Витрина значков) ─────────────────────────────────────────────
+
+export interface AchievementBadge {
+  id: 'first_step' | 'flawless_quiz' | 'equator' | 'polyglot_sniper';
+  title: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+  progressText: string;
+}
+
+export function getUserAchievements(telegramId: number): AchievementBadge[] {
+  const completedDays = getCompletedDays(telegramId);
+  const completedCount = completedDays.length;
+  const firstStepDone = completedDays.includes(1) || completedCount >= 1;
+  const flawlessQuizDone = hasFlawlessQuizSession(telegramId);
+  const equatorDone = completedCount >= 15;
+  const masteredWordsCount = countMasteredWords(telegramId);
+  const polyglotDone = masteredWordsCount >= 100;
+
+  return [
+    {
+      id: 'first_step',
+      title: 'Первый шаг',
+      description: 'пройден 1-й урок',
+      icon: '🌱',
+      unlocked: firstStepDone,
+      progressText: firstStepDone ? 'Открыто' : '0/1 ур.',
+    },
+    {
+      id: 'flawless_quiz',
+      title: 'Без единой ошибки',
+      description: 'тест в словаре на 10/10',
+      icon: '🎯',
+      unlocked: flawlessQuizDone,
+      progressText: flawlessQuizDone ? 'Открыто' : 'Нужен тест 10/10',
+    },
+    {
+      id: 'equator',
+      title: 'Экватор',
+      description: 'пройдено 15 дней курса',
+      icon: '🏔',
+      unlocked: equatorDone,
+      progressText: equatorDone ? 'Открыто' : `${Math.min(completedCount, 15)}/15 дн.`,
+    },
+    {
+      id: 'polyglot_sniper',
+      title: 'Полиглот-снайпер',
+      description: '100 усвоенных слов в тренажёре',
+      icon: '🏆',
+      unlocked: polyglotDone,
+      progressText: polyglotDone ? 'Открыто' : `${Math.min(masteredWordsCount, 100)}/100 сл.`,
+    },
+  ];
 }

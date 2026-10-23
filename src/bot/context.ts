@@ -25,6 +25,19 @@ export interface SessionData {
     questionNumber: number;
     totalQuestions: number;
   };
+
+  // ─── Мини-игры (Конструктор фраз и Тренажёр диалогов) ──────────────────────
+  phraseBuilderState?: {
+    phraseIndex: number;
+    shuffledWords: string[];
+    selectedIndices: number[];
+    mistakes: number;
+  };
+  dialogueState?: {
+    scenarioId: string;
+    turnIndex: number;
+    mistakes: number;
+  };
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

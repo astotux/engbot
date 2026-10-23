@@ -85,6 +85,8 @@ export async function handleSupport(ctx: BotContext): Promise<void> {
 export async function handleCancel(ctx: BotContext): Promise<void> {
   ctx.session.awaitingStep = undefined;
   ctx.session.vocabAwaitingAnswer = undefined;
+  ctx.session.phraseBuilderState = undefined;
+  ctx.session.dialogueState = undefined;
   const telegramId = ctx.from?.id;
   const hasCourse = telegramId ? hasCourseAccess(telegramId) : false;
   const text = `❌ <i>Действие отменено.</i>\n\n` + formatMenuText(hasCourse, ctx.from?.first_name);
