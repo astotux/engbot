@@ -397,18 +397,26 @@ export function createBot(): Bot<BotContext> {
     deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
     const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
-    await sendScreen(ctx, '🤔 Не понимаю это сообщение.\n\nИспользуй кнопки меню:', {
-      reply_markup: mainMenuKeyboard(hasCourse),
-    });
+    await sendScreen(
+      ctx,
+      '🤔 Не понимаю это сообщение.\n\nИспользуй кнопки меню или напиши в поддержку: @adm_koval',
+      {
+        reply_markup: mainMenuKeyboard(hasCourse),
+      },
+    );
   });
 
   bot.on('message', async (ctx) => {
     deleteUserMessage(ctx);
     const telegramId = ctx.from?.id;
     const hasCourse = telegramId ? hasUserCourseAccess(telegramId) : false;
-    await sendScreen(ctx, '🤔 Используй кнопки меню:', {
-      reply_markup: mainMenuKeyboard(hasCourse),
-    });
+    await sendScreen(
+      ctx,
+      '🤔 Используй кнопки меню или напиши в поддержку: @adm_koval',
+      {
+        reply_markup: mainMenuKeyboard(hasCourse),
+      },
+    );
   });
 
   bot.catch((err) => {

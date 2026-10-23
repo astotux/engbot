@@ -394,7 +394,7 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
   if (access.status === 'revoked') {
     await sendScreen(
       ctx,
-      '❌ Доступ отозван. Обратись в поддержку.',
+      '❌ Доступ отозван. Напиши в поддержку: @adm_koval.',
       { reply_markup: mainMenuKeyboard(false) },
     );
     return;

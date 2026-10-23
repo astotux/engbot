@@ -81,7 +81,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
   if (!config.yookassa.enabled) {
     await editScreen(
       ctx,
-      '⚠️ Оплата временно недоступна. Обратись в поддержку.',
+      '⚠️ Оплата временно недоступна. Напиши в поддержку: @adm_koval.',
       { reply_markup: mainMenuKeyboard(false) },
     );
     return;
@@ -116,7 +116,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
     logger.error({ err, telegramId }, 'Ошибка создания платежа');
     await editScreen(
       ctx,
-      '❌ Не удалось создать платёж. Попробуй позже или обратись в поддержку.',
+      '❌ Не удалось создать платёж. Попробуй позже или напиши в поддержку: @adm_koval.',
       { reply_markup: mainMenuKeyboard(false) },
     );
   }

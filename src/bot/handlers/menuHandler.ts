@@ -1,5 +1,5 @@
 import type { BotContext } from '../context.js';
-import { mainMenuKeyboard } from '../keyboards/mainMenu.js';
+import { mainMenuKeyboard, supportKeyboard } from '../keyboards/mainMenu.js';
 import { hasUserCourseAccess } from '../../db/repositories/courseAccess.js';
 import { sendScreen, editScreen } from '../sendHelper.js';
 import { setRemindersEnabled } from '../../db/repositories/users.js';
@@ -19,12 +19,12 @@ const HELP_TEXT = `🆘 <b>Помощь</b>
 /vocab — словарный тренажёр
 /cancel — отменить текущее действие`;
 
-const SUPPORT_TEXT = `💬 <b>Служба поддержки и заботы</b>
+export const SUPPORT_TEXT = `💬 <b>Служба поддержки</b>
 
-Возник вопрос по обучению, оплате или работе тренажёров?
-Мы всегда на связи и рады помочь!
+Если у тебя возникли вопросы по обучению, оплате или работе тренажёров, напиши напрямую администратору:
+👉 @adm_koval
 
-✍️ <b>Напиши свой вопрос прямо в этот чат</b> — служба поддержки ответит тебе в ближайшее время.`;
+Я всегда на связи и помогу во всём разобраться!`;
 
 function hasCourseAccess(telegramId: number): boolean {
   return hasUserCourseAccess(telegramId);
@@ -79,11 +79,9 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
 }
 
 export async function handleSupport(ctx: BotContext): Promise<void> {
-  const telegramId = ctx.from?.id;
-  const hasCourse = telegramId ? hasCourseAccess(telegramId) : false;
   await editScreen(ctx, SUPPORT_TEXT, {
     parse_mode: 'HTML',
-    reply_markup: mainMenuKeyboard(hasCourse),
+    reply_markup: supportKeyboard(),
   });
 }
 

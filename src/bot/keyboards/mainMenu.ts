@@ -38,6 +38,14 @@ export function backToMainKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text('🏠 В главное меню', 'main_menu');
 }
 
+/** Клавиатура экрана поддержки с прямой ссылкой на @adm_koval */
+export function supportKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .url('💬 Написать', 'https://t.me/adm_koval')
+    .row()
+    .text('🏠 В главное меню', 'main_menu');
+}
+
 export function courseInfoKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text('💳 Купить курс', 'buy_course')
