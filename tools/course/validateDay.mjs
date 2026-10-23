@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const partsDir = path.join(here, 'parts');
-const NO_PDF = new Set([28, 30]);
+const NO_PDF = new Set([]);
 
 export async function validateDay(n) {
   const nn = String(n).padStart(2, '0');

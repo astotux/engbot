@@ -32,10 +32,9 @@ describe('Расширенный курс (course_.ts)', () => {
     }
   });
 
-  it('PDF указан у всех дней, кроме теста (28) и финала (30)', () => {
+  it('PDF указан у всех 30 дней курса', () => {
     for (const l of LESSONS_) {
-      if (l.day === 28 || l.day === 30) expect(l.pdfFile).toBeUndefined();
-      else expect(l.pdfFile).toBe(`assets/lessons/day${String(l.day).padStart(2, '0')}.pdf`);
+      expect(l.pdfFile).toBe(`assets/lessons/day${String(l.day).padStart(2, '0')}.pdf`);
     }
   });
 

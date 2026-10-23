@@ -46,3 +46,17 @@ export const steps = (list) =>
   `<div class="steps">${list
     .map((t, i) => `<div class="s"><span class="num">${i + 1}</span><div>${t}</div></div>`)
     .join('')}</div>`;
+
+export const checklist = (items, nextNote = '') =>
+  `<div class="card indigo" style="margin-top:2.5mm"><h4>☑️ Чек-лист дня — отметь, что освоил(а):</h4><div class="grid g2" style="gap:1.5mm 4mm;margin-top:1.5mm">${items
+    .map((it) => `<div style="display:flex;align-items:center;gap:2mm;font-size:9.2pt"><span class="cb"></span><span>${it}</span></div>`)
+    .join('')}</div>${nextNote ? `<div class="small" style="margin-top:2mm;padding-top:1.5mm;border-top:1px dashed #c7d2fe;color:var(--indigo-d)">➡️ <b>Дальше:</b> ${nextNote}</div>` : ''}</div>`;
+
+export const practice = (tasks, answers) =>
+  `<h2>✍️ Мини-практика</h2><div class="grid g2" style="gap:2mm">${tasks
+    .map(
+      (q, i) =>
+        `<div class="card w" style="display:flex;gap:2mm;align-items:flex-start;padding:1.8mm 2.8mm"><span class="num" style="width:5.2mm;height:5.2mm;font-size:8pt">${i + 1}</span><div style="flex:1;font-size:9.1pt">${q}</div></div>`
+    )
+    .join('')}</div><div class="card mint" style="margin-top:2mm;padding:2mm 3.2mm;font-size:8.9pt"><b>✅ Ответы:</b> ${answers}</div>`;
+

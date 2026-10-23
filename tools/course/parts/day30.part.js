@@ -3,6 +3,47 @@
     title: 'Финал: 5 минут речи о себе, прошлом и будущем',
     objective: 'Собрать большой связный рассказ о себе из 5 блоков (to be, Present Simple, can/like, Past Simple, going to/will), написать финальное письмо другу по переписке и подвести итоги 30-дневного курса',
     estimatedMinutes: 40,
+    // ═══════ 📄 ВСТАВИТЬ PDF-КОНСПЕКТ ДНЯ 30 ═══════
+    // Файл: assets/lessons/day30.pdf | Отправляется В НАЧАЛЕ урока (до 1-го шага) | 2 стр. A4
+    // Оформление: как гид free-checklist.pdf (индиго #4f46e5, карточки, таблицы, плашки-подсказки)
+    // ───── СТРАНИЦА 1 ─────
+    // Заголовок: «День 30 · Финал: 5 минут речи о себе»
+    // Подзаголовок: «Готовый конструктор рассказа из 5 блоков и шпаргалка для живого общения»
+    // [Блок 1: Конструктор 5-минутной речи (5 кирпичиков)]
+    //   1. КТО Я (to be): Hello! My name is ... I am ... years old. I am from ... I live in ... I am a ...
+    //   2. МОЯ ЖИЗНЬ И ПРИВЫЧКИ (Present Simple): I work / study ... Every day I get up at ... In the morning I drink ... I usually ... On weekends I often ...
+    //   3. ЧТО Я УМЕЮ И ЛЮБЛЮ (can / like / love): I like ... and ... I love ... I can ... well, and I can speak English! In my free time I watch / read / listen to ...
+    //   4. МОЁ ПРОШЛОЕ (Past Simple): Yesterday was a good day. I woke up at ..., went to ..., met my friends and had dinner. Last summer I visited ...
+    //   5. МОИ ПЛАНЫ И МЕЧТЫ (going to / will): Tomorrow I am going to ... Next year I am going to travel to ... I think I will practice English every day!
+    // [Блок 2: Слова-связки, которые делают речь плавной]
+    //   • and (и), but (но), because (потому что), so (поэтому), also (также), usually (обычно), in my free time (в свободное время), first / then / after that (сначала / потом / после этого)
+    // [Блок 3: Образец полного рассказа (12 предложений)]
+    //   «Hi! My name is Alex. I am 26 years old, and I am from Russia. I live in a big city and work in an office. Every morning I get up at seven o'clock and drink coffee. In my free time I like reading books and watching films. I can swim and cook Italian food. Yesterday was a busy day: I worked, met my friend in a cafe and bought a new book. Next summer I am going to visit Italy. I will speak English every day!»
+    // ───── СТРАНИЦА 2 ─────
+    // [Блок 4: Шаблон финального письма другу по переписке (Penpal Letter)]
+    //   • Приветствие: Hi / Dear [Name]! Nice to meet you!
+    //   • Основная часть: 5 абзацев по конструктору (о себе, рутина, хобби, что делал вчера/недавно, планы на будущее)
+    //   • Вопросы другу: And what about you? Where are you from? What do you like doing?
+    //   • Прощание: Best wishes, / See you soon, [Твоё имя]
+    // [Мини-практика, 6 заданий перед финальной речью]
+    //   1. Какой глагол нужен для возраста: I ___ 25 years old?
+    //   2. Выбери верную форму: Every day I ___ (get up / gets up) at 7:00.
+    //   3. Исправь ошибку: I can to speak English → ___
+    //   4. Поставь в Past Simple: Yesterday I ___ (go) to a cafe and ___ (drink) coffee.
+    //   5. Выбери форму для готового плана: Next month I ___ (am going to visit / visit) my parents.
+    //   6. Какой предлог времени нужен: ___ the morning, но ___ night?
+    // [Ответы] 1 am · 2 get up · 3 I can speak English · 4 went, drank · 5 am going to visit · 6 in, at
+    // [Плашка 🏆 Что дальше? Как не потерять и приумножить результат]
+    //   • Тренажёр словарного запаса в боте (уровни A1–A2, B1–B2, C1–C2 с интервальными повторениями)
+    //   • Регулярные мини-тесты по твоему уровню
+    //   • Правило 15 минут в день: читай вслух, учи по 5 новых слов и практикуй фразы из конспектов
+    // [Чек-лист выпускника курса]
+    //   ☐ Собрал(а) и произнёс(ла) вслух рассказ о себе из 5 блоков
+    //   ☐ Написал(а) финальное письмо другу по переписке
+    //   ☐ Сохранил(а) все 30 PDF-конспектов для быстрого повторения
+    //   ☐ Выбрал(а) свой уровень в тренажёре словаря бота
+    //   ☐ Прошёл(ла) все 30 дней курса «Английский с нуля»!
+    pdfFile: 'assets/lessons/day30.pdf',
     steps: [
       // ── Шаг 1/19: торжественное вступление к 30-му дню ──
       {

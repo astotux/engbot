@@ -9482,6 +9482,48 @@ export const LESSONS_: Lesson[] = [
     title: 'Мини-тест по всему курсу',
     objective: 'Проверить свои знания по всему курсу в формате теста и увидеть, какие темы уже освоены, а какие стоит повторить',
     estimatedMinutes: 30,
+    // ═══════ 📄 ВСТАВИТЬ PDF-КОНСПЕКТ ДНЯ 28 ═══════
+    // Файл: assets/lessons/day28.pdf | Отправляется В НАЧАЛЕ урока (до 1-го шага) | 2 стр. A4
+    // Оформление: как гид free-checklist.pdf (индиго #4f46e5, карточки, таблицы, плашки-подсказки)
+    // ───── СТРАНИЦА 1 ─────
+    // Заголовок: «День 28 · Мини-тест по всему курсу»
+    // Подзаголовок: «Быстрая шпаргалка перед стартом и бланк для самопроверки»
+    // [Блок 1: Экспресс-шпаргалка по 6 главным темам курса]
+    //   1. Глагол to be: I am | he/she/it is | you/we/they are (возраст, состояние, профессия: I am 25, She is a doctor)
+    //   2. Артикли и числа: a + согласный звук, an + гласный звук (an apple, an hour); much + неисчисл. (much water/money), many + исчисл. (many books); исключения мн.ч.: children, men, women, people, feet, teeth
+    //   3. Present Simple: I/you/we/they + V | he/she/it + V-s (works, goes, watches, studies, has). Отрицание и вопрос: don't/doesn't + V (без -s!), Do/Does + кто + V (без -s!)
+    //   4. Модальные глаголы: can / must / should + V (без to, без -s, без do/does: He can swim, You should sleep)
+    //   5. Past Simple: V-ed или V2 (went, saw, bought, had, ate, drank, wrote, spoke, slept, met); was (ед.ч.) / were (мн.ч.); didn't + V1, Did + кто + V1?
+    //   6. Будущее и предлоги: will + V (спонтанно/прогноз), am/is/are going to + V (план); после if/when — Present Simple! Предлоги: in (месяц/год/утро), on (день/дата), at (часы/night/home); go home (без to!)
+    // [Плашка 💡 Как проходить тест]
+    //   • Не спеши и сначала пробуй ответить без подсказки.
+    //   • Пиши ответы маленькими латинскими буквами без сокращений.
+    //   • Записывай номера вопросов, которые вызвали сомнение — завтра мы разберём их.
+    //   • В тесте 15 основных вопросов в трёх блоках: Часть 1 (Основа), Часть 2 (Словарь и Present Simple), Часть 3 (Past, Future, Предлоги).
+    // ───── СТРАНИЦА 2 ─────
+    // [Блок 2: Печатный бланк из 15 контрольных вопросов]
+    //   1. Spell: C-H-A-I-R → ___            2. They ___ my friends. (am / is / are)
+    //   3. Мн. число от child → ___          4. 13 или 30: «thirty» → ___
+    //   5. 7:30 = ___ past seven             6. Выбери неисчисляемое: apple / chair / money / friend
+    //   7. I ___ a sister and a brother.     8. a big house или a house big?
+    //   9. She ___ in a hospital. (work/works) 10. He ___ like milk. (doesn't / don't)
+    //   11. ___ you speak English? (Do/Does) 12. Where ___ you live? (do / does / are)
+    //   13. She can ___ English. (speak / to speak) 14. Yesterday I ___ to the cinema. (go / went)
+    //   15. My birthday is ___ October. (in / on / at)
+    // [Блок 3: Ключи и шкала оценки]
+    //   Ответы: 1 chair · 2 are · 3 children · 4 30 · 5 half · 6 money · 7 have · 8 a big house · 9 works · 10 doesn't · 11 Do · 12 do · 13 speak · 14 went · 15 in
+    //   Таблица результата:
+    //   • 13–15 баллов — Отлично! База A1 освоена уверенно.
+    //   • 9–12 баллов — Хорошо! Завтра на Дне 29 точечно разберём все слабые места.
+    //   • 0–8 баллов — Повтори конспекты тем, где были промахи, и пройди тест ещё раз.
+    // [Чек-лист дня]
+    //   ☐ Прошёл(ла) все 3 части теста
+    //   ☐ Проверил(а) свои ответы по ключам
+    //   ☐ Выписал(а) 2–3 темы для повторения завтра
+    //   ☐ Прочитал(а) вслух все правильные примеры
+    //   ☐ Написал(а) 4 предложения о себе (вчера, каждый день, завтра)
+    // Внизу страницы: «Завтра — День 29: разбор и тренировка самых коварных мест курса».
+    pdfFile: 'assets/lessons/day28.pdf',
     steps: [
       // ── Шаг 1/20: правила теста ──
       {
@@ -10085,6 +10127,47 @@ export const LESSONS_: Lesson[] = [
     title: 'Финал: 5 минут речи о себе, прошлом и будущем',
     objective: 'Собрать большой связный рассказ о себе из 5 блоков (to be, Present Simple, can/like, Past Simple, going to/will), написать финальное письмо другу по переписке и подвести итоги 30-дневного курса',
     estimatedMinutes: 40,
+    // ═══════ 📄 ВСТАВИТЬ PDF-КОНСПЕКТ ДНЯ 30 ═══════
+    // Файл: assets/lessons/day30.pdf | Отправляется В НАЧАЛЕ урока (до 1-го шага) | 2 стр. A4
+    // Оформление: как гид free-checklist.pdf (индиго #4f46e5, карточки, таблицы, плашки-подсказки)
+    // ───── СТРАНИЦА 1 ─────
+    // Заголовок: «День 30 · Финал: 5 минут речи о себе»
+    // Подзаголовок: «Готовый конструктор рассказа из 5 блоков и шпаргалка для живого общения»
+    // [Блок 1: Конструктор 5-минутной речи (5 кирпичиков)]
+    //   1. КТО Я (to be): Hello! My name is ... I am ... years old. I am from ... I live in ... I am a ...
+    //   2. МОЯ ЖИЗНЬ И ПРИВЫЧКИ (Present Simple): I work / study ... Every day I get up at ... In the morning I drink ... I usually ... On weekends I often ...
+    //   3. ЧТО Я УМЕЮ И ЛЮБЛЮ (can / like / love): I like ... and ... I love ... I can ... well, and I can speak English! In my free time I watch / read / listen to ...
+    //   4. МОЁ ПРОШЛОЕ (Past Simple): Yesterday was a good day. I woke up at ..., went to ..., met my friends and had dinner. Last summer I visited ...
+    //   5. МОИ ПЛАНЫ И МЕЧТЫ (going to / will): Tomorrow I am going to ... Next year I am going to travel to ... I think I will practice English every day!
+    // [Блок 2: Слова-связки, которые делают речь плавной]
+    //   • and (и), but (но), because (потому что), so (поэтому), also (также), usually (обычно), in my free time (в свободное время), first / then / after that (сначала / потом / после этого)
+    // [Блок 3: Образец полного рассказа (12 предложений)]
+    //   «Hi! My name is Alex. I am 26 years old, and I am from Russia. I live in a big city and work in an office. Every morning I get up at seven o'clock and drink coffee. In my free time I like reading books and watching films. I can swim and cook Italian food. Yesterday was a busy day: I worked, met my friend in a cafe and bought a new book. Next summer I am going to visit Italy. I will speak English every day!»
+    // ───── СТРАНИЦА 2 ─────
+    // [Блок 4: Шаблон финального письма другу по переписке (Penpal Letter)]
+    //   • Приветствие: Hi / Dear [Name]! Nice to meet you!
+    //   • Основная часть: 5 абзацев по конструктору (о себе, рутина, хобби, что делал вчера/недавно, планы на будущее)
+    //   • Вопросы другу: And what about you? Where are you from? What do you like doing?
+    //   • Прощание: Best wishes, / See you soon, [Твоё имя]
+    // [Мини-практика, 6 заданий перед финальной речью]
+    //   1. Какой глагол нужен для возраста: I ___ 25 years old?
+    //   2. Выбери верную форму: Every day I ___ (get up / gets up) at 7:00.
+    //   3. Исправь ошибку: I can to speak English → ___
+    //   4. Поставь в Past Simple: Yesterday I ___ (go) to a cafe and ___ (drink) coffee.
+    //   5. Выбери форму для готового плана: Next month I ___ (am going to visit / visit) my parents.
+    //   6. Какой предлог времени нужен: ___ the morning, но ___ night?
+    // [Ответы] 1 am · 2 get up · 3 I can speak English · 4 went, drank · 5 am going to visit · 6 in, at
+    // [Плашка 🏆 Что дальше? Как не потерять и приумножить результат]
+    //   • Тренажёр словарного запаса в боте (уровни A1–A2, B1–B2, C1–C2 с интервальными повторениями)
+    //   • Регулярные мини-тесты по твоему уровню
+    //   • Правило 15 минут в день: читай вслух, учи по 5 новых слов и практикуй фразы из конспектов
+    // [Чек-лист выпускника курса]
+    //   ☐ Собрал(а) и произнёс(ла) вслух рассказ о себе из 5 блоков
+    //   ☐ Написал(а) финальное письмо другу по переписке
+    //   ☐ Сохранил(а) все 30 PDF-конспектов для быстрого повторения
+    //   ☐ Выбрал(а) свой уровень в тренажёре словаря бота
+    //   ☐ Прошёл(ла) все 30 дней курса «Английский с нуля»!
+    pdfFile: 'assets/lessons/day30.pdf',
     steps: [
       // ── Шаг 1/19: торжественное вступление к 30-му дню ──
       {
