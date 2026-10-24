@@ -92,6 +92,16 @@ export function advanceCourseDay(telegramId: number): void {
     .run(telegramId, PRODUCT);
 }
 
+export function setCourseDay(telegramId: number, day: number): void {
+  getDb()
+    .prepare(`
+      UPDATE course_access
+      SET current_day = ?
+      WHERE telegram_id = ? AND product_id = ?
+    `)
+    .run(day, telegramId, PRODUCT);
+}
+
 export function completeCourse(telegramId: number): void {
   getDb()
     .prepare(`

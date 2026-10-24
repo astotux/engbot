@@ -4,7 +4,7 @@ import {
   markLessonFailed,
   saveLessonNotification,
 } from '../db/repositories/lessons.js';
-import { getActiveCourseUsers } from '../db/repositories/courseAccess.js';
+import { getActiveCourseUsers, getCourseAccess, setCourseDay } from '../db/repositories/courseAccess.js';
 import { getUserByTelegramId, setUserBlocked } from '../db/repositories/users.js';
 import { scheduleAllLessons } from '../services/lessonService.js';
 import { logger } from '../utils/logger.js';
@@ -69,6 +69,10 @@ async function runSchedulerTick(bot: Bot<BotContext>): Promise<void> {
       });
       markLessonSent(delivery.telegram_id, delivery.day_number);
       saveLessonNotification(delivery.telegram_id, sentMsg.message_id, delivery.day_number);
+      const access = getCourseAccess(delivery.telegram_id);
+      if (access && delivery.day_number > access.current_day) {
+        setCourseDay(delivery.telegram_id, delivery.day_number);
+      }
       logger.info({ telegramId: delivery.telegram_id, day: delivery.day_number }, 'Урок отправлен');
       await sleep(50);
     } catch (err: unknown) {

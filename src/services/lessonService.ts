@@ -1,4 +1,5 @@
 import { getLessonByDay, getStep, getTotalSteps, type Lesson, type ChoiceStep, type InputStep } from '../content/course.js';
+import { getDb } from '../db/connection.js';
 import {
   scheduleLessonDelivery,
   updatePendingLessonDelivery,
@@ -11,6 +12,7 @@ import {
   advanceStep,
   completeAllSteps,
   getCompletedStepIndices,
+  isDayCompleted,
 } from '../db/repositories/lessonSteps.js';
 import { getCourseAccess, updateCourseSendTime } from '../db/repositories/courseAccess.js';
 import { countMasteredWords, hasFlawlessQuizSession } from '../db/repositories/vocabulary.js';
@@ -156,6 +158,122 @@ export function isStepDone(telegramId: number, day: number, stepIndex: number): 
   return completed.includes(stepIndex);
 }
 
+// ─── Доступность и статус уроков ───────────────────────────────────────────
+
+/**
+ * Возвращает список всех номеров уроков (1..30), которые уже открыты для пользователя.
+ */
+export function getAvailableDays(telegramId: number): number[] {
+  const access = getCourseAccess(telegramId);
+  if (!access || access.status === 'revoked') return [];
+
+  const daysSet = new Set<number>();
+
+  // Если курс активен или завершён, День 1 всегда доступен
+  if (access.status === 'active' || access.status === 'completed') {
+    daysSet.add(1);
+  }
+
+  // Все когда-либо пройденные дни
+  for (const day of getCompletedDays(telegramId)) {
+    daysSet.add(day);
+  }
+
+  // Все дни из lesson_deliveries, которые уже отправлены или наступили по расписанию
+  try {
+    const deliveries = getDb()
+      .prepare(`
+        SELECT day_number FROM lesson_deliveries
+        WHERE telegram_id = ? AND (status = 'sent' OR scheduled_at <= datetime('now'))
+      `)
+      .all(telegramId) as Array<{ day_number: number }>;
+    for (const d of deliveries) {
+      daysSet.add(d.day_number);
+    }
+  } catch {
+    // Таблица может отсутствовать в отдельных юнит-тестах
+  }
+
+  // Если в course_access зафиксирован current_day, все дни до него также считаем доступными
+  if (access.current_day > 0) {
+    for (let d = 1; d <= access.current_day; d++) {
+      daysSet.add(d);
+    }
+  }
+
+  return Array.from(daysSet)
+    .filter((d) => d >= 1 && d <= 30)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Возвращает наименьший номер ещё не завершённого урока (1..30)
+ * или null, если все 30 уроков пройдены.
+ */
+export function getEarliestUncompletedDay(telegramId: number): number | null {
+  const completedDays = new Set(getCompletedDays(telegramId));
+  for (let day = 1; day <= 30; day++) {
+    if (!completedDays.has(day) && !isDayCompleted(telegramId, day)) {
+      return day;
+    }
+  }
+  return null;
+}
+
+export interface LessonWarningInfo {
+  hasWarning: boolean;
+  currentRequiredDay: number;
+  targetDay?: number;
+  availableDays: number[];
+  upcomingDays: number[];
+}
+
+/**
+ * Проверяет, нужно ли показать предупреждение о необходимости сначала пройти предыдущий урок.
+ */
+export function checkLessonWarning(telegramId: number, targetDay?: number): LessonWarningInfo {
+  const earliestUncompleted = getEarliestUncompletedDay(telegramId);
+  const availableDays = getAvailableDays(telegramId);
+
+  // Если целевой урок передан, он также считается доступным (пользователь получил его через уведомление)
+  if (targetDay !== undefined && targetDay >= 1 && targetDay <= 30 && !availableDays.includes(targetDay)) {
+    availableDays.push(targetDay);
+    availableDays.sort((a, b) => a - b);
+  }
+
+  // Если все 30 уроков курса пройдены — предупреждение не нужно
+  if (earliestUncompleted === null) {
+    return {
+      hasWarning: false,
+      currentRequiredDay: 30,
+      targetDay,
+      availableDays,
+      upcomingDays: [],
+    };
+  }
+
+  // Уроки, которые уже доступны пользователю, но идут ПОСЛЕ текущего незавершённого
+  const upcomingDays = availableDays.filter((d) => d > earliestUncompleted);
+
+  // Предупреждение нужно:
+  // 1) Если пользователь нажал на уведомление конкретного урока targetDay, и этот урок позже текущего незавершённого
+  //    (например, нажал «Начать урок» на День 3, а День 2 ещё не пройден);
+  // 2) ИЛИ пользователь заходит через «Мой урок» (/lesson или 'my_lesson'), и при этом уже открыты уроки наперёд
+  //    (например, открыты 3, 4, 5, а сделан только 1-й).
+  const isDirectTargetLater = targetDay !== undefined && targetDay > earliestUncompleted;
+  const isGeneralEntryWithUpcoming = targetDay === undefined && upcomingDays.length > 0;
+
+  const hasWarning = isDirectTargetLater || isGeneralEntryWithUpcoming;
+
+  return {
+    hasWarning,
+    currentRequiredDay: earliestUncompleted,
+    targetDay,
+    availableDays,
+    upcomingDays,
+  };
+}
+
 // ─── Прогресс пользователя ────────────────────────────────────────────────────
 
 export function getUserProgress(telegramId: number) {
@@ -168,13 +286,16 @@ export function getUserProgress(telegramId: number) {
   const remaining = totalDays - completedCount;
   const percent = Math.round((completedCount / totalDays) * 100);
 
+  const earliestUncompleted = getEarliestUncompletedDay(telegramId);
+  const currentDay = earliestUncompleted ?? Math.max(1, access.current_day);
+
   return {
-    currentDay: access.current_day,
+    currentDay,
     completedDays,
     completedCount,
     remaining,
     percent,
-    nextDay: access.current_day,
+    nextDay: currentDay,
     status: access.status,
     startedAt: access.started_at,
   };
@@ -183,8 +304,10 @@ export function getUserProgress(telegramId: number) {
 export function getLessonForUser(telegramId: number, day?: number): Lesson | undefined {
   const access = getCourseAccess(telegramId);
   if (!access || (access.status !== 'active' && access.status !== 'completed')) return undefined;
-  const requestedDay = day ?? access.current_day;
-  if (requestedDay > access.current_day) return undefined;
+  const earliestUncompleted = getEarliestUncompletedDay(telegramId);
+  const requestedDay = day ?? earliestUncompleted ?? access.current_day;
+  const availableDays = getAvailableDays(telegramId);
+  if (!availableDays.includes(requestedDay) && requestedDay > access.current_day) return undefined;
   return getLessonByDay(requestedDay);
 }
 

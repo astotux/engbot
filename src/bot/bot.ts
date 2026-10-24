@@ -20,6 +20,7 @@ import {
 } from './handlers/courseHandler.js';
 import {
   handleLesson,
+  handleStartLessonDirectly,
   handleProgress,
   handleUserAnswer,
   handleChoiceCallback,
@@ -65,6 +66,8 @@ import {
 } from './handlers/minigamesHandler.js';
 import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
+import { getAvailableDays } from '../services/lessonService.js';
+import { isDayCompleted } from '../db/repositories/lessonSteps.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 import { mainMenuKeyboard } from './keyboards/mainMenu.js';
 import { sendScreen, editScreen, deleteUserMessage } from './sendHelper.js';
@@ -91,7 +94,7 @@ export function createBot(): Bot<BotContext> {
   bot.command('support', handleSupport);
   bot.command('cancel', handleCancel);
   bot.command('course', handleCourseInfo);
-  bot.command('lesson', handleLesson);
+  bot.command('lesson', async (ctx) => handleLesson(ctx));
   bot.command('progress', handleProgress);
   bot.command('vocab', handleVocabMenu);
   bot.command('notes', async (ctx) => handleNotesMenu(ctx, 0));
@@ -122,8 +125,16 @@ export function createBot(): Bot<BotContext> {
     });
   });
 
-  bot.callbackQuery('my_lesson', handleLesson);
-  bot.callbackQuery(/^start_scheduled_lesson(?::\d+)?$/, handleLesson);
+  bot.callbackQuery('my_lesson', async (ctx) => handleLesson(ctx));
+  bot.callbackQuery(/^start_scheduled_lesson(?::(\d+))?$/, async (ctx) => {
+    const targetDay = ctx.match[1] ? Number(ctx.match[1]) : undefined;
+    await handleLesson(ctx, targetDay);
+  });
+  bot.callbackQuery(/^start_required_lesson:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const day = Number(ctx.match[1]);
+    await handleStartLessonDirectly(ctx, day);
+  });
   bot.callbackQuery('my_progress', handleProgress);
   bot.callbackQuery('support', async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -278,7 +289,8 @@ export function createBot(): Bot<BotContext> {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
     const access = getCourseAccess(telegramId);
-    if (!access || day > access.current_day) {
+    const available = getAvailableDays(telegramId);
+    if (!access || !available.includes(day)) {
       await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
       return;
     }
@@ -298,12 +310,18 @@ export function createBot(): Bot<BotContext> {
     await ctx.answerCallbackQuery();
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
+    const day = Number(ctx.match[1]);
     const access = getCourseAccess(telegramId);
-    if (!access || Number(ctx.match[1]) > access.current_day) {
+    const available = getAvailableDays(telegramId);
+    if (!access || !available.includes(day)) {
       await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
       return;
     }
-    await handleLesson(ctx);
+    if (isDayCompleted(telegramId, day)) {
+      await handleStartLessonDirectly(ctx, day);
+      return;
+    }
+    await handleLesson(ctx, day);
   });
 
   // ── Словарный запас ───────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { InputFile, InlineKeyboard } from 'grammy';
 import fs from 'fs';
 import path from 'path';
 import type { BotContext } from '../context.js';
-import { getCourseAccess, startCourse } from '../../db/repositories/courseAccess.js';
+import { getCourseAccess, startCourse, setCourseDay, completeCourse } from '../../db/repositories/courseAccess.js';
 import {
   getLessonForUser,
   getUserProgress,
@@ -12,7 +12,12 @@ import {
   getOrInitStepProgress,
   markStepDone,
   scheduleAllLessons,
+  checkLessonWarning,
+  getAvailableDays,
+  getEarliestUncompletedDay,
+  type LessonWarningInfo,
 } from '../../services/lessonService.js';
+import { getStepProgress } from '../../db/repositories/lessonSteps.js';
 import { getLessonNotification, clearLessonNotification } from '../../db/repositories/lessons.js';
 import {
   getLessonByDay,
@@ -106,10 +111,79 @@ export function inputKeyboard(day: number, stepIndex: number): InlineKeyboard {
 /** Универсальный вывод урока-шаблона (для планировщика) */
 export function formatLessonMessage(lesson: { day: number; title: string; estimatedMinutes: number }): string {
   return (
-    `📖 <b>День ${lesson.day}: ${lesson.title}</b>\n\n` +
+    `📖 <b>Урок ${lesson.day}: ${lesson.title}</b>\n\n` +
     `⏱ Примерное время: ${lesson.estimatedMinutes} мин\n\n` +
     `Нажми «🚀 Начать урок» ниже, чтобы приступить!`
   );
+}
+
+/** Форматирование предупреждения о необходимости пройти предыдущий урок */
+export function formatLessonWarning(info: LessonWarningInfo): string {
+  const { currentRequiredDay, targetDay, upcomingDays } = info;
+  const currentLesson = getLessonByDay(currentRequiredDay);
+  const currentTitle = currentLesson ? `: ${currentLesson.title}` : '';
+
+  let reasonText = '';
+  if (targetDay !== undefined && targetDay > currentRequiredDay) {
+    const targetLesson = getLessonByDay(targetDay);
+    const targetTitle = targetLesson ? ` («${targetLesson.title}»)` : '';
+    reasonText = `Тебе пришло уведомление об <b>Уроке ${targetDay}</b>${targetTitle}, но <b>Урок ${currentRequiredDay}</b> ещё не завершён.`;
+  } else if (upcomingDays.length === 1) {
+    const nextDay = upcomingDays[0];
+    const nextLesson = getLessonByDay(nextDay);
+    const nextTitle = nextLesson ? ` («${nextLesson.title}»)` : '';
+    reasonText = `Тебе уже доступен <b>Урок ${nextDay}</b>${nextTitle}, но <b>Урок ${currentRequiredDay}</b> ещё не пройден.`;
+  } else {
+    const daysStr = upcomingDays.map((d) => `${d}`).join(', ');
+    reasonText = `Тебе уже открыты следующие уроки курса (<b>${daysStr}</b>), но <b>Урок ${currentRequiredDay}</b> ещё не завершён.`;
+  }
+
+  // Формируем визуальный список статусов уроков
+  let listText = '';
+
+  // Предыдущие пройденные уроки (показываем до 2 последних пройденных)
+  if (currentRequiredDay > 1) {
+    const prevDay = currentRequiredDay - 1;
+    const prevLesson = getLessonByDay(prevDay);
+    if (prevDay > 1) {
+      listText += `  <i>...предыдущие дни пройдены...</i>\n`;
+    }
+    listText += `  ✅ Урок ${prevDay}: ${prevLesson?.title ?? `Урок ${prevDay}`} — <i>пройден</i>\n`;
+  }
+
+  // Текущий урок (нужно пройти сейчас)
+  listText += `  ⏳ <b>Урок ${currentRequiredDay}${currentTitle}</b> — <b>нужно пройти сейчас</b> 👈\n`;
+
+  // Доступные следующие уроки
+  for (const d of upcomingDays) {
+    const l = getLessonByDay(d);
+    listText += `  🔓 Урок ${d}: ${l?.title ?? `Урок ${d}`} — <i>уже доступен</i>\n`;
+  }
+
+  return (
+    `⚠️ <b>Сначала нужно пройти предыдущий урок!</b>\n\n` +
+    `${reasonText}\n\n` +
+    `💡 <i>В курсе важна последовательность — каждая новая тема закрепляет предыдущие правила и готовит к следующим заданиям.</i>\n\n` +
+    `📋 <b>Статус твоих уроков:</b>\n` +
+    `${listText}\n` +
+    `Нажми кнопку ниже, чтобы пройти <b>Урок ${currentRequiredDay}</b> и открыть доступ к новым урокам 👇`
+  );
+}
+
+export function lessonWarningKeyboard(
+  currentRequiredDay: number,
+  stepIndex: number,
+  totalSteps: number,
+): InlineKeyboard {
+  const btnText =
+    stepIndex > 0
+      ? `▶️ Продолжить Урок ${currentRequiredDay} (шаг ${stepIndex + 1}/${totalSteps})`
+      : `🚀 Начать Урок ${currentRequiredDay}`;
+
+  return new InlineKeyboard()
+    .text(btnText, `start_required_lesson:${currentRequiredDay}`)
+    .row()
+    .text('🏠 В главное меню', 'main_menu');
 }
 
 /**
@@ -359,9 +433,21 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   }
 }
 
-// ─── Команда /lesson ──────────────────────────────────────────────────────────
+// ─── Запуск урока напрямую (без проверки предупреждений) ─────────────────────
 
-export async function handleLesson(ctx: BotContext): Promise<void> {
+export async function handleStartLessonDirectly(ctx: BotContext, day: number): Promise<void> {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const prog = getOrInitStepProgress(telegramId, day);
+  const stepIndex = prog.completed_at ? 0 : prog.step_index;
+
+  await sendStep(ctx, day, stepIndex);
+}
+
+// ─── Команда /lesson и вход в урок ───────────────────────────────────────────
+
+export async function handleLesson(ctx: BotContext, targetDay?: number): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
@@ -408,9 +494,27 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const lesson = getLessonForUser(telegramId);
+  // Проверяем, нужно ли показать предупреждение о незавершённом предыдущем уроке
+  const warningInfo = checkLessonWarning(telegramId, targetDay);
+  if (warningInfo.hasWarning) {
+    const prog = getStepProgress(telegramId, warningInfo.currentRequiredDay);
+    const stepIndex = prog?.completed_at ? 0 : (prog?.step_index ?? 0);
+    const totalSteps = getTotalSteps(warningInfo.currentRequiredDay);
+
+    const warningText = formatLessonWarning(warningInfo);
+    const kb = lessonWarningKeyboard(warningInfo.currentRequiredDay, stepIndex, totalSteps);
+
+    await sendScreen(ctx, warningText, {
+      parse_mode: 'HTML',
+      reply_markup: kb,
+    });
+    return;
+  }
+
+  const dayToOpen = targetDay ?? warningInfo.currentRequiredDay ?? access.current_day;
+  const lesson = getLessonForUser(telegramId, dayToOpen);
   if (!lesson) {
-    if (access.status === 'completed') {
+    if (access.status === 'completed' || warningInfo.currentRequiredDay === null) {
       await sendScreen(
         ctx,
         '🎉 Ты завершил(а) весь курс! Посмотри свой прогресс ниже.',
@@ -426,10 +530,7 @@ export async function handleLesson(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const prog = getOrInitStepProgress(telegramId, lesson.day);
-  const stepIndex = prog.completed_at ? 0 : prog.step_index;
-
-  await sendStep(ctx, lesson.day, stepIndex);
+  await handleStartLessonDirectly(ctx, lesson.day);
 }
 
 // ─── Callback: выбор варианта ─────────────────────────────────────────────────
@@ -523,7 +624,13 @@ export async function handleHintCallback(ctx: BotContext, day: number, stepIndex
 export async function handleLessonDone(ctx: BotContext, explicitDay?: number): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
-  await ctx.answerCallbackQuery();
+  if (ctx.answerCallbackQuery) {
+    try {
+      await ctx.answerCallbackQuery();
+    } catch {
+      // Игнорируем если уже отвечено
+    }
+  }
 
   const access = getCourseAccess(telegramId);
   if (!access) return;
@@ -533,11 +640,43 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   const total = getTotalSteps(day);
   markStepDone(telegramId, day, total - 1);
 
-  const doneText =
-    `🎉 <b>Урок ${day} завершён!</b>\n\n` +
-    `Отличная работа! Конспект этого урока теперь также всегда доступен в разделе «📂 Мои конспекты», а следующий урок придёт завтра по расписанию.`;
+  // Обновляем прогресс в базе
+  const earliestUncompleted = getEarliestUncompletedDay(telegramId);
+  if (earliestUncompleted) {
+    if (earliestUncompleted > access.current_day) {
+      setCourseDay(telegramId, earliestUncompleted);
+    }
+  } else {
+    completeCourse(telegramId);
+  }
+
+  // Проверяем, доступен ли уже следующий урок
+  const availableDays = getAvailableDays(telegramId);
+  const nextDay = day + 1;
+  const isNextAvailable = nextDay <= 30 && availableDays.includes(nextDay);
+
+  let doneText = `🎉 <b>Урок ${day} завершён!</b>\n\n`;
+  if (day === 30 || !earliestUncompleted) {
+    doneText += `🏆 <b>Поздравляем с окончанием курса!</b> Ты успешно завершил(а) все 30 дней программы.`;
+  } else if (isNextAvailable) {
+    const nextLesson = getLessonByDay(nextDay);
+    const nextTitle = nextLesson ? `: ${nextLesson.title}` : '';
+    doneText +=
+      `Отличная работа! Конспект этого урока теперь всегда доступен в разделе «📂 Мои конспекты».\n\n` +
+      `⚡ <b>Урок ${nextDay}${nextTitle} уже открыт</b> и ждёт тебя! Ты можешь перейти к нему прямо сейчас 👇`;
+  } else {
+    doneText +=
+      `Отличная работа! Конспект этого урока теперь также всегда доступен в разделе «📂 Мои конспекты», а следующий урок придёт завтра по расписанию.`;
+  }
+
   const lesson = getLessonByDay(day);
   const pdfPath = lesson?.pdfFile ? path.resolve(lesson.pdfFile) : null;
+
+  const doneKb = new InlineKeyboard();
+  if (isNextAvailable && nextDay <= 30) {
+    doneKb.text(`🚀 Перейти к уроку ${nextDay}`, `start_required_lesson:${nextDay}`).row();
+  }
+  doneKb.text('🏠 В главное меню', 'main_menu');
 
   if (pdfPath && fs.existsSync(pdfPath)) {
     await sendPersistentDocument(
@@ -551,7 +690,7 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
         text: doneText,
         options: {
           parse_mode: 'HTML',
-          reply_markup: mainMenuKeyboard(true),
+          reply_markup: doneKb,
         },
       },
     );
@@ -561,7 +700,7 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
       doneText,
       {
         parse_mode: 'HTML',
-        reply_markup: mainMenuKeyboard(true),
+        reply_markup: doneKb,
       },
     );
   }
