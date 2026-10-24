@@ -214,7 +214,7 @@ export async function handleSetLessonTime(ctx: BotContext, mskHour: number): Pro
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
-  const { mskHour: savedHour, mskMinute, serverHour } = setUserLessonTime(telegramId, mskHour, 0);
+  const { mskHour: savedHour, mskMinute } = setUserLessonTime(telegramId, mskHour, 0);
 
   if (ctx.callbackQuery) {
     await ctx.answerCallbackQuery(
