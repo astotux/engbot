@@ -66,6 +66,7 @@ import { handleAdminCommand } from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { getAvailableDays } from '../services/lessonService.js';
 import { isDayCompleted } from '../db/repositories/lessonSteps.js';
+import { getLessonNotification, clearLessonNotification } from '../db/repositories/lessons.js';
 import { setUserBlocked } from '../db/repositories/users.js';
 import { mainMenuKeyboard } from './keyboards/mainMenu.js';
 import { sendScreen, editScreen, deleteUserMessage } from './sendHelper.js';
@@ -77,11 +78,29 @@ export function createBot(): Bot<BotContext> {
 
   // Сбрасываем флаг блокировки при любом входящем сообщении
   bot.use(async (ctx, next) => {
-    if (ctx.from?.id) setUserBlocked(ctx.from.id, false);
+    const userId = ctx.from?.id;
+    if (userId) setUserBlocked(userId, false);
     // Удаляем команды пользователя (кроме админских), чтобы сохранять чистый чат в одном сообщении
     if (ctx.message?.text?.startsWith('/') && !ctx.message.text.startsWith('/admin')) {
       deleteUserMessage(ctx);
     }
+
+    // Если пользователь нажал инлайн-кнопку на предыдущем основном сообщении (а не на самой уведе об уроке),
+    // удаляем висящее уведомление об уроке / напоминание
+    if (userId && ctx.callbackQuery?.message && ctx.api?.deleteMessage) {
+      const cbMsgId = ctx.callbackQuery.message.message_id;
+      const isNotifBtn = ctx.callbackQuery.data?.startsWith('start_scheduled_lesson');
+      if (!isNotifBtn) {
+        const notif = getLessonNotification(userId);
+        if (notif) {
+          clearLessonNotification(userId);
+          if (notif.message_id !== cbMsgId) {
+            ctx.api.deleteMessage(userId, notif.message_id).catch(() => {});
+          }
+        }
+      }
+    }
+
     await next();
   });
 

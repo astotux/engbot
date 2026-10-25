@@ -223,13 +223,15 @@ describe('Новые фичи и мини-игры', () => {
 
       expect(REMINDER_MSK_HOURS).toEqual([9, 15, 21]);
 
-      const sentMessages: Array<{ chatId: number; text: string }> = [];
+      const sentMessages: Array<{ chatId: number; text: string; opts?: any }> = [];
+      let nextMsgId = 800;
       const mockBot = {
         api: {
-          sendMessage: vi.fn(async (chatId: number, text: string) => {
-            sentMessages.push({ chatId, text });
-            return { message_id: 888 };
+          sendMessage: vi.fn(async (chatId: number, text: string, opts?: any) => {
+            sentMessages.push({ chatId, text, opts });
+            return { message_id: ++nextMsgId };
           }),
+          deleteMessage: vi.fn(async () => true),
         },
       };
 
@@ -240,6 +242,10 @@ describe('Новые фичи и мини-игры', () => {
       // 09:00 МСК (06:00 UTC) — 1-е напоминание
       const at9Msk = new Date(Date.UTC(2026, 9, 25, 6, 0, 0));
       expect(await runReminderTick(mockBot as any, at9Msk)).toBe(1);
+      // Проверяем, что в напоминании есть инлайн-кнопка «🚀 Начать урок» (а не команда /lesson)
+      expect(sentMessages[0].text).not.toContain('/lesson');
+      const btns = sentMessages[0].opts?.reply_markup?.inline_keyboard?.flat() ?? [];
+      expect(btns.some((b: any) => b.callback_data === 'start_scheduled_lesson:1')).toBe(true);
       // Повторный тик в 09:30 МСК не дублирует отправку
       expect(await runReminderTick(mockBot as any, new Date(Date.UTC(2026, 9, 25, 6, 30, 0)))).toBe(0);
 

@@ -1,10 +1,15 @@
 import { getDb } from '../db/connection.js';
 import { getActiveCourseUsers } from '../db/repositories/courseAccess.js';
 import { getUserByTelegramId, setUserBlocked } from '../db/repositories/users.js';
-import { getSubmission } from '../db/repositories/lessons.js';
+import {
+  getSubmission,
+  saveLessonNotification,
+  getLessonNotification,
+  clearLessonNotification,
+} from '../db/repositories/lessons.js';
 import { getMskDateTimeParts } from '../utils/time.js';
 import { logger } from '../utils/logger.js';
-import type { Bot } from 'grammy';
+import { InlineKeyboard, type Bot } from 'grammy';
 import type { BotContext } from '../bot/context.js';
 
 let reminderInterval: ReturnType<typeof setInterval> | null = null;
@@ -57,10 +62,31 @@ export async function runReminderTick(
     if (alreadySent) continue;
 
     try {
-      await bot.api.sendMessage(
+      const prevNotif = getLessonNotification(access.telegram_id);
+      if (prevNotif) {
+        clearLessonNotification(access.telegram_id);
+        if (bot.api.deleteMessage) {
+          try {
+            await bot.api.deleteMessage(access.telegram_id, prevNotif.message_id);
+          } catch {
+            // Предыдущее уведомление уже удалено
+          }
+        }
+      }
+
+      const kb = new InlineKeyboard().text('🚀 Начать урок', `start_scheduled_lesson:${access.current_day}`);
+      const sentMsg = await bot.api.sendMessage(
         access.telegram_id,
-        `📚 Привет! Ты ещё не выполнил(а) задание к уроку ${access.current_day}.\n\nОтправь /lesson чтобы открыть урок.`,
+        `📚 Привет! Ты ещё не выполнил(а) задание к уроку ${access.current_day}.\n\nНажми кнопку ниже, чтобы открыть урок 👇`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: kb,
+        },
       );
+
+      if (sentMsg?.message_id) {
+        saveLessonNotification(access.telegram_id, sentMsg.message_id, access.current_day);
+      }
 
       db.prepare(`
         INSERT OR REPLACE INTO reminders (telegram_id, day_number, scheduled_at, sent_at, status)

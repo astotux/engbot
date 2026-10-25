@@ -94,6 +94,37 @@ describe('Мини-фиксы: уведомление об уроке и сло�
       expect(deletedIds).toContain(777);
       expect(getLessonNotification(700)).toBeUndefined();
     });
+
+    it('при нажатии на инлайн-кнопку уведомления удаляет предыдущее основное сообщение и открывает урок в уведомлении', async () => {
+      saveLessonNotification(700, 777, 1);
+      createCourseAccess(700, null, 'active');
+
+      const deletedIds: number[] = [];
+      const mockCtx: any = {
+        from: { id: 700 },
+        chat: { id: 700 },
+        session: { lastBotMessageId: 500 },
+        callbackQuery: {
+          data: 'start_scheduled_lesson:1',
+          message: { message_id: 777 },
+        },
+        answerCallbackQuery: vi.fn(),
+        api: {
+          deleteMessage: vi.fn(async (_chatId: number, msgId: number) => {
+            deletedIds.push(msgId);
+          }),
+          editMessageText: vi.fn(),
+        },
+        replyWithVideoNote: vi.fn().mockResolvedValue({ message_id: 778 }),
+        replyWithVoice: vi.fn().mockResolvedValue({ message_id: 779 }),
+        reply: vi.fn().mockResolvedValue({ message_id: 780 }),
+      };
+
+      await handleLesson(mockCtx, 1);
+      // Предыдущее основное сообщение (500) удалено
+      expect(deletedIds).toContain(500);
+      expect(getLessonNotification(700)).toBeUndefined();
+    });
   });
 
   describe('2. Словарный тренажер: первый заход и настройки', () => {

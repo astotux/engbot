@@ -454,13 +454,35 @@ export async function handleLesson(ctx: BotContext, targetDay?: number): Promise
   // Если вызов из callback — отвечаем на него
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
 
-  // Удаляем сообщение-уведомление об уроке из чата (если было отправлено)
-  if (ctx.api) {
-    await cleanupLessonNotification(
-      ctx.api,
-      telegramId,
-      ctx.callbackQuery?.data?.startsWith('start_scheduled_lesson') ? ctx.callbackQuery?.message?.message_id : undefined,
-    );
+  const isFromNotification = !!ctx.callbackQuery?.data?.startsWith('start_scheduled_lesson');
+  const cbMsgId = ctx.callbackQuery?.message?.message_id;
+
+  // 1. Если пользователь нажал кнопку на уведомлении об уроке / напоминании:
+  //    удаляем предыдущее основное сообщение бота (lastBotMessageId),
+  //    а само это уведомление делаем основным экраном (в нём откроется начало урока)
+  if (isFromNotification && cbMsgId) {
+    const prevMainId = ctx.session?.lastBotMessageId;
+    if (prevMainId && prevMainId !== cbMsgId && ctx.api?.deleteMessage) {
+      try {
+        await ctx.api.deleteMessage(telegramId, prevMainId);
+      } catch {
+        // Предыдущее основное сообщение уже удалено
+      }
+    }
+    if (ctx.session) {
+      ctx.session.lastBotMessageId = cbMsgId;
+    }
+    const notif = getLessonNotification(telegramId);
+    clearLessonNotification(telegramId);
+    if (notif && notif.message_id !== cbMsgId && ctx.api?.deleteMessage) {
+      try {
+        await ctx.api.deleteMessage(telegramId, notif.message_id);
+      } catch {}
+    }
+  } else if (ctx.api) {
+    // 2. Если пользователь нажал кнопку на предыдущем основном сообщении (или /lesson):
+    //    удаляем сообщение-уведомление об уроке из чата
+    await cleanupLessonNotification(ctx.api, telegramId);
   }
 
   const access = getCourseAccess(telegramId);

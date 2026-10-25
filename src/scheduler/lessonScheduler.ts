@@ -3,6 +3,8 @@ import {
   markLessonSent,
   markLessonFailed,
   saveLessonNotification,
+  getLessonNotification,
+  clearLessonNotification,
 } from '../db/repositories/lessons.js';
 import { getActiveCourseUsers, getCourseAccess, setCourseDay } from '../db/repositories/courseAccess.js';
 import { getUserByTelegramId, setUserBlocked } from '../db/repositories/users.js';
@@ -62,6 +64,16 @@ async function runSchedulerTick(bot: Bot<BotContext>): Promise<void> {
     }
 
     try {
+      const prevNotif = getLessonNotification(delivery.telegram_id);
+      if (prevNotif) {
+        clearLessonNotification(delivery.telegram_id);
+        try {
+          await bot.api.deleteMessage(delivery.telegram_id, prevNotif.message_id);
+        } catch {
+          // Предыдущее уведомление уже удалено
+        }
+      }
+
       const kb = new InlineKeyboard().text('🚀 Начать урок', `start_scheduled_lesson:${delivery.day_number}`);
       const sentMsg = await bot.api.sendMessage(delivery.telegram_id, formatLessonMessage(lesson), {
         parse_mode: 'HTML',
