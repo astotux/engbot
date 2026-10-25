@@ -19,7 +19,7 @@ export const REMINDER_MSK_HOURS = [9, 15, 21] as const;
 
 export function startReminderScheduler(bot: Bot<BotContext>): void {
   if (reminderInterval) return;
-  reminderInterval = setInterval(() => { void runReminderTick(bot); }, 3_600_000);
+  reminderInterval = setInterval(() => { void runReminderTick(bot); }, 60_000);
   logger.info('Планировщик напоминаний запущен');
 }
 
