@@ -10,8 +10,8 @@ export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
   if (hasCourse) {
     // Пользователь уже обучается на курсе
     kb.text('📖 Урок дня', 'my_lesson').row();
+    kb.text('📂 Мои конспекты', 'my_notes');
     kb.text('📊 Мой прогресс', 'my_progress').row();
-    kb.text('📂 Мои конспекты', 'my_notes').row();
     kb.text('🎮 Мини-игры', 'games:menu').row();
     kb.text('📚 Программа курса', 'show_program')
       .text('💬 Поддержка', 'support');

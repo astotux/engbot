@@ -20,13 +20,41 @@ import {
   incrementPhrasesCompleted,
   markDialogueCompleted,
 } from '../../db/repositories/minigames.js';
+import { hasUserCourseAccess } from '../../db/repositories/courseAccess.js';
+import { config } from '../../config/index.js';
 import { editScreen } from '../sendHelper.js';
+
+function buyCourseForGamesKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(`💳 Купить курс за ${config.coursePriceRub} ₽`, 'buy_course')
+    .row()
+    .text('◀️ К мини-играм', 'games:menu')
+    .text('🏠 В главное меню', 'main_menu');
+}
+
+async function showMinigameLockedScreen(ctx: BotContext, gameName: string): Promise<void> {
+  await editScreen(
+    ctx,
+    `🔒 <b>${gameName} — в подарок к курсу!</b>\n\n` +
+      `Эта игра открывается после оплаты уроков курса <b>«Английский за 30 дней»</b>.\n\n` +
+      `🎁 <b>При покупке курса ты получаешь все мини-игры в подарок навсегда:</b>\n` +
+      `• 🧠 <b>Тренажёр слов</b> — 500+ слов, безлимитные тесты и повторение ошибок\n` +
+      `• 🧩 <b>Конструктор фраз</b> — ${PHRASE_BUILDER_ITEMS.length} предложений для тренировки порядка слов\n` +
+      `• 💬 <b>Тренажёр диалогов</b> — ${DIALOGUE_SCENARIOS.length} реальных жизненных сценариев\n\n` +
+      `💳 <b>Стоимость курса со всеми играми: всего ${config.coursePriceRub} ₽</b>\n\n` +
+      `<i>А пока ты можешь бесплатно попробовать демо-тест в «🧠 Тренажёре слов»!</i>`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: buyCourseForGamesKeyboard(),
+    },
+  );
+}
 
 // ─── Главное подменю «🎮 Мини-игры» ──────────────────────────────────────────
 
 export function minigamesMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text('🧠 Тренажёр слов (A1–C2)', 'vocab:menu')
+    .text('🧠 Тренажёр слов', 'vocab:menu')
     .row()
     .text('🧩 Конструктор фраз', 'games:builder')
     .row()
@@ -164,6 +192,11 @@ export async function handlePhraseBuilderStart(
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
+
+  if (!hasUserCourseAccess(telegramId)) {
+    await showMinigameLockedScreen(ctx, '🧩 Конструктор фраз');
+    return;
+  }
 
   const progress = getMinigameProgress(telegramId);
   const startIdx = explicitIndex ?? (progress.phrasesCompleted % PHRASE_BUILDER_ITEMS.length);
@@ -326,6 +359,11 @@ export async function handleDialogueMenu(ctx: BotContext): Promise<void> {
   if (!telegramId) return;
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
 
+  if (!hasUserCourseAccess(telegramId)) {
+    await showMinigameLockedScreen(ctx, '💬 Тренажёр диалогов');
+    return;
+  }
+
   const progress = getMinigameProgress(telegramId);
   let text =
     `💬 <b>Тренажёр диалогов (Симулятор реальной жизни 💬)</b>\n\n` +
@@ -384,6 +422,11 @@ export async function handleDialogueStart(ctx: BotContext, scenarioId: string): 
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
+
+  if (!hasUserCourseAccess(telegramId)) {
+    await showMinigameLockedScreen(ctx, '💬 Тренажёр диалогов');
+    return;
+  }
 
   const scenario = DIALOGUE_SCENARIOS.find((s) => s.id === scenarioId);
   if (!scenario) {

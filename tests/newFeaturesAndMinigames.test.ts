@@ -436,7 +436,25 @@ describe('Новые фичи и мини-игры', () => {
       expect(subButtons.some((b: any) => b.callback_data === 'games:dialogue')).toBe(true);
     });
 
+    it('для пользователя без купленного курса по нажатию на «Конструктор фраз» и «Тренажёр диалогов» просит оплатить уроки (все игры в подарок)', async () => {
+      const ctx = createMockCtx(1001);
+
+      await handlePhraseBuilderStart(ctx, 0);
+      expect(ctx.getLastText()).toContain('в подарок к курсу');
+      expect(ctx.getLastText()).toContain('после оплаты уроков');
+      const builderBtns = ctx.getLastMarkup().inline_keyboard.flat();
+      expect(builderBtns.some((b: any) => b.callback_data === 'buy_course')).toBe(true);
+
+      await handleDialogueMenu(ctx);
+      expect(ctx.getLastText()).toContain('в подарок к курсу');
+      expect(ctx.getLastText()).toContain('после оплаты уроков');
+      const dialogueBtns = ctx.getLastMarkup().inline_keyboard.flat();
+      expect(dialogueBtns.some((b: any) => b.callback_data === 'buy_course')).toBe(true);
+    });
+
     it('Конструктор фраз: позволяет собрать предложение по словам, проверяет ошибки, подсказки и сохраняет прогресс в одном сообщении', async () => {
+      createCourseAccess(1001, null, 'active');
+      startCourse(1001);
       const ctx = createMockCtx(1001);
       await handlePhraseBuilderStart(ctx, 0);
 
@@ -506,6 +524,8 @@ describe('Новые фичи и мини-игры', () => {
     });
 
     it('Тренажёр диалогов: проходит сценарий по шагам, обрабатывает неверные реплики и сохраняет завершённый диалог', async () => {
+      createCourseAccess(1001, null, 'active');
+      startCourse(1001);
       const ctx = createMockCtx(1001);
       await handleDialogueMenu(ctx);
       expect(ctx.getLastText()).toContain('Тренажёр диалогов');
