@@ -6,7 +6,7 @@ import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 import { getBotInstance } from '../botInstance.js';
 import { notifyNewUser } from '../../services/notifyService.js';
-import { isSubscribed, getChannelLink, getChannelName } from '../../services/subscriptionService.js';
+import { isSubscribed, getChannelName } from '../../services/subscriptionService.js';
 import { sendScreen, sendPersistentDocument, editScreen, deletePrevious } from '../sendHelper.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
 import fs from 'fs';
@@ -103,7 +103,6 @@ export async function sendFreeChecklist(ctx: BotContext): Promise<void> {
       const subscribed = await isSubscribed(bot, telegramId);
 
       if (!subscribed) {
-        const channelName = getChannelName();
         await sendScreen(
           ctx,
           `🎁 <b>Бесплатный чек-лист</b>\n\n` +
