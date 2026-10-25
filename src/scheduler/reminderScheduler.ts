@@ -2,11 +2,15 @@ import { getDb } from '../db/connection.js';
 import { getActiveCourseUsers } from '../db/repositories/courseAccess.js';
 import { getUserByTelegramId, setUserBlocked } from '../db/repositories/users.js';
 import { getSubmission } from '../db/repositories/lessons.js';
+import { getMskDateTimeParts } from '../utils/time.js';
 import { logger } from '../utils/logger.js';
 import type { Bot } from 'grammy';
 import type { BotContext } from '../bot/context.js';
 
 let reminderInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Часы по МСК для отправки уведомлений о непройденном уроке */
+export const REMINDER_MSK_HOURS = [9, 15, 21] as const;
 
 export function startReminderScheduler(bot: Bot<BotContext>): void {
   if (reminderInterval) return;
@@ -21,15 +25,22 @@ export function stopReminderScheduler(): void {
   }
 }
 
-async function runReminderTick(bot: Bot<BotContext>): Promise<void> {
+export async function runReminderTick(
+  bot: Pick<Bot<BotContext>, 'api'>,
+  now: Date = new Date(),
+): Promise<number> {
   const db = getDb();
-  const now = new Date();
-  const hour = now.getUTCHours();
+  const msk = getMskDateTimeParts(now);
 
-  // Напоминания отправляем вечером (18:00 UTC ≈ 21:00 МСК)
-  if (hour !== 18) return;
+  // Напоминания отправляем в 9:00, 15:00 и 21:00 по МСК (06:00, 12:00 и 18:00 UTC на сервере)
+  if (!REMINDER_MSK_HOURS.includes(msk.hour as (typeof REMINDER_MSK_HOURS)[number])) {
+    return 0;
+  }
 
+  const slotPrefix = `${msk.dateKey}T${String(msk.hour).padStart(2, '0')}:`;
   const users = getActiveCourseUsers();
+  let sentCount = 0;
+
   for (const access of users) {
     const user = getUserByTelegramId(access.telegram_id);
     if (!user || user.is_blocked || !user.reminders_enabled) continue;
@@ -37,12 +48,11 @@ async function runReminderTick(bot: Bot<BotContext>): Promise<void> {
     const submission = getSubmission(access.telegram_id, access.current_day);
     if (submission) continue;
 
-    const today = new Date().toISOString().split('T')[0];
     const alreadySent = db
       .prepare(
         "SELECT id FROM reminders WHERE telegram_id = ? AND day_number = ? AND sent_at LIKE ? AND status = 'sent'",
       )
-      .get(access.telegram_id, access.current_day, `${today}%`) as { id: number } | undefined;
+      .get(access.telegram_id, access.current_day, `${slotPrefix}%`) as { id: number } | undefined;
 
     if (alreadySent) continue;
 
@@ -54,15 +64,23 @@ async function runReminderTick(bot: Bot<BotContext>): Promise<void> {
 
       db.prepare(`
         INSERT OR REPLACE INTO reminders (telegram_id, day_number, scheduled_at, sent_at, status)
-        VALUES (?, ?, datetime('now'), datetime('now'), 'sent')
-      `).run(access.telegram_id, access.current_day, new Date().toISOString());
+        VALUES (?, ?, ?, ?, 'sent')
+      `).run(
+        access.telegram_id,
+        access.current_day,
+        now.toISOString(),
+        `${slotPrefix}${String(msk.minute).padStart(2, '0')}:00`,
+      );
 
-      logger.info({ telegramId: access.telegram_id, day: access.current_day }, 'Напоминание отправлено');
+      sentCount++;
+      logger.info({ telegramId: access.telegram_id, day: access.current_day, mskHour: msk.hour }, 'Напоминание отправлено');
     } catch (err: unknown) {
-      if (String(err).includes('403')) {
+      if (String(err).includes('403') || String(err).includes('bot was blocked')) {
         setUserBlocked(access.telegram_id, true);
       }
       logger.error({ err, telegramId: access.telegram_id }, 'Ошибка отправки напоминания');
     }
   }
+
+  return sentCount;
 }

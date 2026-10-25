@@ -29,7 +29,7 @@ const COURSE_DESCRIPTION = `🇬🇧 <b>Курс «Английский за 30 
   • 💬 <b>Тренажёр диалогов:</b> 8 реальных жизненных сценариев (кафе, отель, аэропорт, врач, собеседование)
 
 ⏱ <b>Всего 15–30 минут в день:</b>
-  • Выбирай удобное время получения уроков
+  • Новые уроки открываются каждый день в 00:01 (МСК)
 
 ━━━━━━━━━━━━━━━━━━
 💳 <b>Стоимость: всего ${config.coursePriceRub} ₽</b> <i>(разовый платёж, доступ навсегда)</i>
@@ -227,13 +227,10 @@ export async function handleStartCourse(ctx: BotContext): Promise<void> {
     scheduleAllLessons(telegramId);
   }
 
-  const sendHour = access.send_hour ?? config.lessonSendHour;
-  const sendMinute = access.send_minute ?? config.lessonSendMinute;
-
   await editScreen(
     ctx,
     `🚀 <b>Обучение началось!</b>\n\n` +
-      `Каждый день в ${String(sendHour).padStart(2, '0')}:${String(sendMinute).padStart(2, '0')} (МСК) ты будешь получать новый урок (изменить час можно в разделе «⏰ Время уроков»).\n\n` +
+      `Новые уроки открываются каждый день в 00:01 (МСК).\n\n` +
       `Первый урок уже ждёт тебя — нажми «📖 Урок дня» в меню ниже!`,
     {
       parse_mode: 'HTML',

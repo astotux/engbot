@@ -35,7 +35,7 @@ export function stopScheduler(): void {
 function initSchedules(bot: Bot<BotContext>): void {
   const users = getActiveCourseUsers();
   for (const access of users) {
-    scheduleAllLessons(access.telegram_id);
+    scheduleAllLessons(access.telegram_id, true);
   }
   logger.info({ count: users.length }, 'Расписание уроков инициализировано');
   void runSchedulerTick(bot);

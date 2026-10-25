@@ -34,7 +34,7 @@ const { upsertUser, setRemindersEnabled } = await import('../src/db/repositories
 const { createCourseAccess, startCourse, getCourseAccess } = await import('../src/db/repositories/courseAccess.js');
 const { saveSubmission, getLessonDelivery } = await import('../src/db/repositories/lessons.js');
 const { createSession, completeSession } = await import('../src/db/repositories/vocabulary.js');
-const { getUserAchievements, setUserLessonTime } = await import('../src/services/lessonService.js');
+const { getUserAchievements, scheduleAllLessons } = await import('../src/services/lessonService.js');
 const {
   SERVER_OFFSET_HOURS,
   mskHourToServerHour,
@@ -46,8 +46,6 @@ const {
   getUserNotesList,
   handleNotesMenu,
   handleNotesDownload,
-  handleLessonTimeMenu,
-  handleSetLessonTime,
 } = await import('../src/bot/handlers/notesAndTimeHandler.js');
 const { handleProgress, formatAchievementsSection } = await import('../src/bot/handlers/lessonHandler.js');
 const {
@@ -56,6 +54,10 @@ const {
   isWeeklyReportSent,
   WEEKLY_REPORT_MSK_HOUR,
 } = await import('../src/scheduler/weeklyReportScheduler.js');
+const {
+  runReminderTick,
+  REMINDER_MSK_HOURS,
+} = await import('../src/scheduler/reminderScheduler.js');
 const {
   handleMinigamesMenu,
   handlePhraseBuilderStart,
@@ -185,8 +187,8 @@ describe('Новые фичи и мини-игры', () => {
     });
   });
 
-  // ─── 2. ⏰ Выбрать время уроков (с учётом 3-часовой разницы с сервером) ────
-  describe('2. ⏰ Выбор времени уроков (разница с сервером 3 часа)', () => {
+  // ─── 2. ⏰ Расписание уроков (00:01 МСК) и уведомления в 9, 15 и 21 МСК ────
+  describe('2. ⏰ Открытие уроков в 00:01 МСК и напоминания в 9, 15, 21 МСК', () => {
     it('корректно переводит время МСК в серверное время (-3 часа) и обратно', () => {
       expect(SERVER_OFFSET_HOURS).toBe(3);
       expect(mskHourToServerHour(10)).toBe(7); // 10:00 МСК = 07:00 на сервере (UTC)
@@ -196,33 +198,60 @@ describe('Новые фичи и мини-игры', () => {
       expect(serverHourToMskHour(21)).toBe(0);
     });
 
-    it('toZonedScheduledTime учитывает 3-часовую разницу с сервером', () => {
+    it('toZonedScheduledTime учитывает 3-часовую разницу с сервером (00:01 МСК = 21:01 UTC)', () => {
       const baseDate = new Date(Date.UTC(2026, 9, 20, 12, 0, 0));
-      const scheduled = toZonedScheduledTime(baseDate, 15, 0, 'Europe/Moscow');
-      // 15:00 МСК должно запланироваться на 12:00 UTC на сервере
-      expect(scheduled.getUTCHours()).toBe(12);
-      expect(scheduled.getUTCMinutes()).toBe(0);
+      const scheduled = toZonedScheduledTime(baseDate, 0, 1, 'Europe/Moscow');
+      // 00:01 МСК должно запланироваться на 21:01 UTC предыдущего календарного дня на сервере
+      expect(scheduled.getUTCHours()).toBe(21);
+      expect(scheduled.getUTCMinutes()).toBe(1);
     });
 
-    it('сохраняет выбранный час в course_access и пересчитывает pending-уроки', async () => {
+    it('scheduleAllLessons планирует открытие следующих уроков в 00:01 по МСК', () => {
+      createCourseAccess(1001, null, 'active');
+      startCourse(1001);
+      scheduleAllLessons(1001, true);
+
+      const d2 = getLessonDelivery(1001, 2);
+      expect(d2).toBeTruthy();
+      expect(new Date(d2!.scheduled_at).getUTCHours()).toBe(21);
+      expect(new Date(d2!.scheduled_at).getUTCMinutes()).toBe(1);
+    });
+
+    it('отправляет напоминания о непройденном уроке в 9:00, 15:00 и 21:00 по МСК', async () => {
       createCourseAccess(1001, null, 'active');
       startCourse(1001);
 
-      const ctx = createMockCtx(1001);
-      await handleLessonTimeMenu(ctx);
-      expect(ctx.getLastText()).toContain('Выбрать время уроков');
-      expect(ctx.getLastText()).toContain('10:00 (МСК)');
+      expect(REMINDER_MSK_HOURS).toEqual([9, 15, 21]);
 
-      // Меняем время на 18:00 МСК (15:00 серверное)
-      await handleSetLessonTime(ctx, 18);
-      expect(ctx.getLastText()).toContain('18:00 (МСК)');
+      const sentMessages: Array<{ chatId: number; text: string }> = [];
+      const mockBot = {
+        api: {
+          sendMessage: vi.fn(async (chatId: number, text: string) => {
+            sentMessages.push({ chatId, text });
+            return { message_id: 888 };
+          }),
+        },
+      };
 
-      const access = getCourseAccess(1001);
-      expect(access?.send_hour).toBe(18);
+      // 10:00 МСК (07:00 UTC) — не время напоминаний
+      const at10Msk = new Date(Date.UTC(2026, 9, 25, 7, 0, 0));
+      expect(await runReminderTick(mockBot as any, at10Msk)).toBe(0);
 
-      const d1 = getLessonDelivery(1001, 1);
-      expect(d1).toBeTruthy();
-      expect(new Date(d1!.scheduled_at).getUTCHours()).toBe(15);
+      // 09:00 МСК (06:00 UTC) — 1-е напоминание
+      const at9Msk = new Date(Date.UTC(2026, 9, 25, 6, 0, 0));
+      expect(await runReminderTick(mockBot as any, at9Msk)).toBe(1);
+      // Повторный тик в 09:30 МСК не дублирует отправку
+      expect(await runReminderTick(mockBot as any, new Date(Date.UTC(2026, 9, 25, 6, 30, 0)))).toBe(0);
+
+      // 15:00 МСК (12:00 UTC) — 2-е напоминание
+      const at15Msk = new Date(Date.UTC(2026, 9, 25, 12, 0, 0));
+      expect(await runReminderTick(mockBot as any, at15Msk)).toBe(1);
+
+      // 21:00 МСК (18:00 UTC) — 3-е напоминание
+      const at21Msk = new Date(Date.UTC(2026, 9, 25, 18, 0, 0));
+      expect(await runReminderTick(mockBot as any, at21Msk)).toBe(1);
+
+      expect(sentMessages.length).toBe(3);
     });
   });
 
@@ -391,13 +420,13 @@ describe('Новые фичи и мини-игры', () => {
       const guestButtons = kbGuest.inline_keyboard.flat();
       expect(guestButtons.some((b: any) => b.callback_data === 'games:menu' && b.text.includes('Мини-игры'))).toBe(true);
       expect(guestButtons.some((b: any) => b.callback_data === 'my_notes')).toBe(true);
-      expect(guestButtons.some((b: any) => b.callback_data === 'lesson_time')).toBe(true);
+      expect(guestButtons.some((b: any) => b.callback_data === 'lesson_time')).toBe(false);
 
       const kbStudent = mainMenuKeyboard(true);
       const studentButtons = kbStudent.inline_keyboard.flat();
       expect(studentButtons.some((b: any) => b.callback_data === 'games:menu' && b.text.includes('Мини-игры'))).toBe(true);
       expect(studentButtons.some((b: any) => b.callback_data === 'my_notes')).toBe(true);
-      expect(studentButtons.some((b: any) => b.callback_data === 'lesson_time')).toBe(true);
+      expect(studentButtons.some((b: any) => b.callback_data === 'lesson_time')).toBe(false);
 
       const ctx = createMockCtx(1001);
       await handleMinigamesMenu(ctx);

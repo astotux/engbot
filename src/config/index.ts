@@ -14,8 +14,8 @@ const configSchema = z.object({
   FREE_CHECKLIST_PATH: z.string().default('./assets/free-checklist.pdf'),
   COURSE_PRICE_RUB: z.coerce.number().int().positive().default(500),
   COURSE_TIMEZONE: z.string().default('Europe/Moscow'),
-  LESSON_SEND_HOUR: z.coerce.number().int().min(0).max(23).default(10),
-  LESSON_SEND_MINUTE: z.coerce.number().int().min(0).max(59).default(0),
+  LESSON_SEND_HOUR: z.coerce.number().int().min(0).max(23).default(0),
+  LESSON_SEND_MINUTE: z.coerce.number().int().min(0).max(59).default(1),
   REQUIRED_CHANNEL: z.string().optional(), // username или id канала, например @mychannel или -1001234567890
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

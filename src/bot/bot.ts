@@ -50,8 +50,6 @@ import {
 import {
   handleNotesMenu,
   handleNotesDownload,
-  handleLessonTimeMenu,
-  handleSetLessonTime,
 } from './handlers/notesAndTimeHandler.js';
 import {
   handleMinigamesMenu,
@@ -98,7 +96,6 @@ export function createBot(): Bot<BotContext> {
   bot.command('progress', handleProgress);
   bot.command('vocab', handleVocabMenu);
   bot.command('notes', async (ctx) => handleNotesMenu(ctx, 0));
-  bot.command('time', handleLessonTimeMenu);
   bot.command('games', handleMinigamesMenu);
 
   for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_report', 'admin_help']) {
@@ -141,7 +138,7 @@ export function createBot(): Bot<BotContext> {
     await handleSupport(ctx);
   });
 
-  // ── Конспекты (со слайдером) и Выбор времени уроков ────────────────────────
+  // ── Конспекты (со слайдером) ────────────────────────────────────────────────
   bot.callbackQuery('my_notes', async (ctx) => {
     await handleNotesMenu(ctx, 0);
   });
@@ -152,14 +149,6 @@ export function createBot(): Bot<BotContext> {
     await handleNotesDownload(ctx, Number(ctx.match[1]));
   });
   bot.callbackQuery('notes:noop', async (ctx) => {
-    await ctx.answerCallbackQuery();
-  });
-
-  bot.callbackQuery('lesson_time', handleLessonTimeMenu);
-  bot.callbackQuery(/^lesson_time:set:(\d+)$/, async (ctx) => {
-    await handleSetLessonTime(ctx, Number(ctx.match[1]));
-  });
-  bot.callbackQuery('lesson_time:noop', async (ctx) => {
     await ctx.answerCallbackQuery();
   });
 

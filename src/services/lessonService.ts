@@ -31,13 +31,12 @@ export function scheduleAllLessons(telegramId: number, forceUpdatePending = fals
   if (!access || access.status !== 'active' || !access.started_at) return;
 
   const startDate = parseSqliteUtcDate(access.started_at);
-  const hour = access.send_hour ?? config.lessonSendHour;
-  const minute = access.send_minute ?? config.lessonSendMinute;
   const tz = config.courseTimezone;
 
+  // День 1 открывается сразу при старте, а все следующие уроки (2..30) — в 00:01 МСК следующего дня
   for (let day = 1; day <= 30; day++) {
     const d = new Date(startDate.getTime() + (day - 1) * 86_400_000);
-    const scheduled = toZonedScheduledTime(d, hour, minute, tz);
+    const scheduled = day === 1 ? startDate : toZonedScheduledTime(d, 0, 1, tz);
     if (forceUpdatePending) {
       updatePendingLessonDelivery(telegramId, day, scheduled.toISOString());
     } else {
