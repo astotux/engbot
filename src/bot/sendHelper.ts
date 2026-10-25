@@ -20,6 +20,25 @@ type SendOptions = {
 // ─── Очистка сообщений ────────────────────────────────────────────────────────
 
 /**
+ * Хранит ID последнего главного сообщения бота для каждого пользователя (по chatId / telegramId),
+ * чтобы фоновые процессы (webhook оплаты, сверка платежей, outbox) могли отредактировать
+ * существующее сообщение вместо отправки нового.
+ */
+const lastScreenMessageMap = new Map<number, number>();
+
+export function setLastScreenMessageId(chatId: number, messageId: number | undefined): void {
+  if (messageId === undefined) {
+    lastScreenMessageMap.delete(chatId);
+  } else {
+    lastScreenMessageMap.set(chatId, messageId);
+  }
+}
+
+export function getLastScreenMessageId(chatId: number): number | undefined {
+  return lastScreenMessageMap.get(chatId);
+}
+
+/**
  * Добавляет ID сообщения во временный список на удаление (голосовые, кружки, подсказки и т.д.)
  */
 export function addCleanupMessage(ctx: BotContext, messageId: number): void {
@@ -69,9 +88,10 @@ export function deleteUserMessage(ctx: BotContext): void {
  */
 export async function deletePrevious(ctx: BotContext): Promise<void> {
   const chatId = ctx.chat?.id;
-  const lastId = ctx.session?.lastBotMessageId;
+  const lastId = ctx.session?.lastBotMessageId ?? (chatId ? getLastScreenMessageId(chatId) : undefined);
   const cbId = ctx.callbackQuery?.message?.message_id;
   if (ctx.session) ctx.session.lastBotMessageId = undefined;
+  if (chatId) setLastScreenMessageId(chatId, undefined);
   if (!chatId || !ctx.api?.deleteMessage) return;
 
   const idsToDelete = new Set<number>();
@@ -101,7 +121,7 @@ export async function sendScreen(
   const chatId = ctx.chat?.id;
   const lastId = options.forceNew
     ? undefined
-    : (ctx.session?.lastBotMessageId ?? ctx.callbackQuery?.message?.message_id);
+    : (ctx.session?.lastBotMessageId ?? ctx.callbackQuery?.message?.message_id ?? (chatId ? getLastScreenMessageId(chatId) : undefined));
 
   // 1. Очищаем вспомогательные сообщения (медиафайлы шагов, подсказки и т.д.)
   if (!options.skipCleanup) {
@@ -122,11 +142,13 @@ export async function sendScreen(
         editOpts as Parameters<typeof ctx.api.editMessageText>[3],
       );
       if (ctx.session) ctx.session.lastBotMessageId = lastId;
+      setLastScreenMessageId(chatId, lastId);
       return;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       if (errMsg.includes('message is not modified')) {
         if (ctx.session) ctx.session.lastBotMessageId = lastId;
+        setLastScreenMessageId(chatId, lastId);
         return;
       }
       logger.debug({ err, lastId }, 'Не удалось отредактировать сообщение, создаём новое');
@@ -134,6 +156,7 @@ export async function sendScreen(
         await ctx.api.deleteMessage(chatId, lastId);
       } catch {}
       if (ctx.session) ctx.session.lastBotMessageId = undefined;
+      setLastScreenMessageId(chatId, undefined);
     }
   }
 
@@ -145,6 +168,9 @@ export async function sendScreen(
   const sent = await ctx.reply(text, replyOpts as Parameters<typeof ctx.reply>[1]);
   if (ctx.session) {
     ctx.session.lastBotMessageId = sent.message_id;
+  }
+  if (chatId) {
+    setLastScreenMessageId(chatId, sent.message_id);
   }
 }
 
@@ -160,6 +186,8 @@ export async function editScreen(
     await cleanupAuxiliaryMessages(ctx);
   }
 
+  const chatId = ctx.chat?.id;
+
   if (ctx.callbackQuery?.message) {
     try {
       const editOpts: Record<string, unknown> = {};
@@ -170,12 +198,18 @@ export async function editScreen(
       if (ctx.session) {
         ctx.session.lastBotMessageId = ctx.callbackQuery.message.message_id;
       }
+      if (chatId) {
+        setLastScreenMessageId(chatId, ctx.callbackQuery.message.message_id);
+      }
       return;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       if (errMsg.includes('message is not modified')) {
         if (ctx.session) {
           ctx.session.lastBotMessageId = ctx.callbackQuery.message.message_id;
+        }
+        if (chatId) {
+          setLastScreenMessageId(chatId, ctx.callbackQuery.message.message_id);
         }
         return;
       }

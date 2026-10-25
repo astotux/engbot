@@ -1,12 +1,28 @@
 import type { BotContext } from '../context.js';
 import { getCourseAccess, startCourse, hasUserCourseAccess } from '../../db/repositories/courseAccess.js';
 import { getActivePaymentForUser } from '../../db/repositories/payments.js';
+import { getPendingOutboxEvents, markOutboxProcessed } from '../../db/repositories/outbox.js';
 import { mainMenuKeyboard, courseInfoKeyboard } from '../keyboards/mainMenu.js';
 import { initiatePurchase, verifyPaymentById } from '../../services/purchaseService.js';
 import { scheduleAllLessons } from '../../services/lessonService.js';
-import { editScreen } from '../sendHelper.js';
+import { editScreen, getLastScreenMessageId, setLastScreenMessageId } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
+
+function markPendingCourseGrantProcessedForUser(telegramId: number): void {
+  try {
+    const events = getPendingOutboxEvents(50);
+    for (const ev of events) {
+      if (ev.event_type !== 'course_access_granted') continue;
+      const payload = JSON.parse(ev.payload) as { telegramId?: number };
+      if (payload.telegramId === telegramId) {
+        markOutboxProcessed(ev.id);
+      }
+    }
+  } catch {
+    // игнорируем ошибки парсинга
+  }
+}
 
 const COURSE_DESCRIPTION = `🇬🇧 <b>Курс «Английский за 30 дней» + Тренажёр словаря и диалогов</b>
 
@@ -148,6 +164,7 @@ export async function handleCheckPayment(ctx: BotContext, explicitPaymentId?: st
   try {
     const result = await verifyPaymentById(paymentId);
     if (result.isPaid) {
+      markPendingCourseGrantProcessedForUser(telegramId);
       await ctx.answerCallbackQuery('🎉 Оплата подтверждена!');
       await editScreen(
         ctx,
@@ -240,20 +257,52 @@ export async function handleStartCourse(ctx: BotContext): Promise<void> {
 }
 
 export async function sendCourseAccessMessage(
-  bot: { api: { sendMessage: (id: number, text: string, opts?: Record<string, unknown>) => Promise<unknown> } },
+  bot: {
+    api: {
+      sendMessage: (id: number, text: string, opts?: Record<string, unknown>) => Promise<unknown>;
+      editMessageText?: (chatId: number, messageId: number, text: string, opts?: Record<string, unknown>) => Promise<unknown>;
+    };
+  },
   telegramId: number,
+  explicitMessageId?: number,
 ): Promise<void> {
-  await bot.api.sendMessage(
-    telegramId,
-    `🎉 <b>Оплата прошла успешно!</b>\n\nДобро пожаловать на курс «Английский за 30 дней».\n\nТебя ждут короткие уроки, практика и постепенное закрепление материала.\n\nНажми кнопку ниже, чтобы начать обучение 👇`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: JSON.stringify({
-        inline_keyboard: [
-          [{ text: '🚀 Начать обучение', callback_data: 'start_course' }],
-          [{ text: '🏠 В главное меню', callback_data: 'main_menu' }],
-        ],
-      }),
-    },
-  );
+  const text =
+    `🎉 <b>Оплата подтверждена!</b>\n\n` +
+    `Добро пожаловать на курс «Английский за 30 дней»!\n\n` +
+    `Доступ ко всем материалам открыт. Первый урок уже ждёт тебя 👇`;
+
+  const replyMarkup = {
+    inline_keyboard: [
+      [{ text: '🚀 Начать обучение (Урок 1)', callback_data: 'my_lesson' }],
+      [{ text: '🏠 В главное меню', callback_data: 'main_menu' }],
+    ],
+  };
+
+  const targetMessageId = explicitMessageId ?? getLastScreenMessageId(telegramId);
+
+  if (targetMessageId && bot.api.editMessageText) {
+    try {
+      await bot.api.editMessageText(telegramId, targetMessageId, text, {
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      setLastScreenMessageId(telegramId, targetMessageId);
+      return;
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('message is not modified')) {
+        return;
+      }
+      logger.debug({ err, telegramId, targetMessageId }, 'Не удалось отредактировать старое сообщение при оплате, отправляем новое');
+    }
+  }
+
+  const sent = (await bot.api.sendMessage(telegramId, text, {
+    parse_mode: 'HTML',
+    reply_markup: replyMarkup,
+  })) as { message_id?: number } | undefined;
+
+  if (sent?.message_id) {
+    setLastScreenMessageId(telegramId, sent.message_id);
+  }
 }

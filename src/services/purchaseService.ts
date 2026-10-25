@@ -27,6 +27,7 @@ import {
   type YookassaPayment,
 } from '../payments/yookassa.js';
 import { getBotInstance } from '../bot/botInstance.js';
+import { getLastScreenMessageId } from '../bot/sendHelper.js';
 import { notifyPurchase } from './notifyService.js';
 import { scheduleAllLessons } from './lessonService.js';
 import { config } from '../config/index.js';
@@ -129,6 +130,7 @@ export async function processPaymentSuccess(payment: Payment, _verified?: Yookas
       addOutboxEvent('course_access_granted', {
         telegramId: payment.telegram_id,
         orderId: payment.order_id,
+        messageId: getLastScreenMessageId(payment.telegram_id),
       });
       logger.info({ telegramId: payment.telegram_id }, 'Доступ к курсу активирован');
     } else {

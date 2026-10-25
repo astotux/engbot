@@ -45,6 +45,7 @@ const { getPaymentByYookassaId, getPaymentById } = await import('../src/db/repos
 const { isWebhookProcessed } = await import('../src/db/repositories/webhookEvents.js');
 const { getPendingOutboxEvents, addOutboxEvent } = await import('../src/db/repositories/outbox.js');
 const { processOutbox } = await import('../src/http/server.js');
+const { setLastScreenMessageId } = await import('../src/bot/sendHelper.js');
 const { getYookassaPayment } = await import('../src/payments/yookassa.js');
 const { config } = await import('../src/config/index.js');
 
@@ -346,5 +347,34 @@ describe('PurchaseService', () => {
 
     // Но событие в outbox должно быть помечено как обработанное (не висит вечно)
     expect(getPendingOutboxEvents()).toHaveLength(0);
+  });
+
+  it('после оплаты редактирует старое сообщение с оплатой вместо отправки нового', async () => {
+    // Пользователь открыл экран оплаты на сообщении 555
+    setLastScreenMessageId(400, 555);
+
+    await initiatePurchase(400);
+    await handleWebhookEvent({
+      type: 'notification',
+      event: 'payment.succeeded',
+      object: { id: 'yk-test-001', status: 'succeeded', amount: { value: '500.00', currency: 'RUB' } },
+    }, 'evt-edit-msg');
+
+    const mockSendMessage = vi.fn().mockResolvedValue({ message_id: 666 });
+    const mockEditMessageText = vi.fn().mockResolvedValue({ message_id: 555 });
+    const mockBot = {
+      api: {
+        sendMessage: mockSendMessage,
+        editMessageText: mockEditMessageText,
+      },
+    } as any;
+
+    await processOutbox(mockBot);
+
+    expect(mockEditMessageText).toHaveBeenCalledTimes(1);
+    expect(mockEditMessageText.mock.calls[0][0]).toBe(400);
+    expect(mockEditMessageText.mock.calls[0][1]).toBe(555);
+    expect(mockEditMessageText.mock.calls[0][2]).toContain('Оплата подтверждена!');
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 });

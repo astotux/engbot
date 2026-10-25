@@ -6,9 +6,11 @@ import { logger } from '../utils/logger.js';
 import { handleWebhookEvent } from '../services/purchaseService.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sendCourseAccessMessage } from '../bot/handlers/courseHandler.js';
+import { getLastScreenMessageId, setLastScreenMessageId } from '../bot/sendHelper.js';
 import { getPendingOutboxEvents, markOutboxProcessed, markOutboxFailed } from '../db/repositories/outbox.js';
 import { hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { hasSucceededPaymentForUser } from '../db/repositories/payments.js';
+import { mainMenuKeyboard } from '../bot/keyboards/mainMenu.js';
 
 export function createHttpServer(bot: Bot<BotContext>): express.Application {
   const app = express();
@@ -71,18 +73,35 @@ export async function processOutbox(bot: Bot<BotContext>): Promise<void> {
   const events = getPendingOutboxEvents();
   for (const event of events) {
     try {
-      const payload = JSON.parse(event.payload) as { telegramId?: number };
+      const payload = JSON.parse(event.payload) as { telegramId?: number; messageId?: number };
       if (event.event_type === 'course_access_granted' && payload.telegramId) {
-        await sendCourseAccessMessage(bot, payload.telegramId);
+        await sendCourseAccessMessage(bot, payload.telegramId, payload.messageId);
       } else if (event.event_type === 'payment_canceled' && payload.telegramId) {
         // Не отправляем уведомление об отмене, если пользователь уже оплатил курс
         const hasAccess = hasUserCourseAccess(payload.telegramId);
         const hasSucceeded = hasSucceededPaymentForUser(payload.telegramId);
         if (!hasAccess && !hasSucceeded) {
-          await bot.api.sendMessage(
-            payload.telegramId,
-            '❌ Оплата отменена. Если это ошибка, попробуй снова через /course.',
-          );
+          const cancelText = '❌ Оплата отменена. Если это ошибка, попробуй снова через /course.';
+          const targetMsgId = payload.messageId ?? getLastScreenMessageId(payload.telegramId);
+          let edited = false;
+          if (targetMsgId && bot.api.editMessageText) {
+            try {
+              await bot.api.editMessageText(payload.telegramId, targetMsgId, cancelText, {
+                reply_markup: mainMenuKeyboard(false),
+              });
+              edited = true;
+            } catch {
+              // Фоллбек на отправку нового сообщения
+            }
+          }
+          if (!edited) {
+            const sent = (await bot.api.sendMessage(payload.telegramId, cancelText, {
+              reply_markup: mainMenuKeyboard(false),
+            })) as { message_id?: number } | undefined;
+            if (sent?.message_id) {
+              setLastScreenMessageId(payload.telegramId, sent.message_id);
+            }
+          }
         } else {
           logger.info(
             { telegramId: payload.telegramId, eventId: event.id },
