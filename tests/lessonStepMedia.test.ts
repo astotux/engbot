@@ -7,6 +7,9 @@ import type { LessonStep } from '../src/content/course.js';
 import {
   sendStepMedia,
   stepHasMedia,
+  getStepVoicePath,
+  getStepVideoNotePath,
+  handleNextStep,
   getMp4Dimensions,
   getMp4Duration,
 } from '../src/bot/handlers/lessonHandler.js';
@@ -172,6 +175,38 @@ describe('sendStepMedia', () => {
       const duration = getMp4Duration(introPath);
       expect(duration).toBeGreaterThan(0);
       expect(Math.round(duration!)).toBe(10);
+    }
+  });
+
+  it('голосовое на шаге урока (напр. День 1, шаг 2) отправляется вместе с текстом и кнопками в одном сообщении через replyWithVoice', async () => {
+    const replyMock = vi.fn().mockResolvedValue({ message_id: 300 });
+    const ctx = {
+      from: { id: 12345 },
+      chat: { id: 12345 },
+      session: { cleanupMessageIds: [] },
+      answerCallbackQuery: vi.fn().mockResolvedValue(true),
+      replyWithVoice: replyWithVoiceMock,
+      replyWithVideoNote: replyWithVideoNoteMock,
+      reply: replyMock,
+      api: {
+        deleteMessage: vi.fn().mockResolvedValue(true),
+        editMessageText: vi.fn().mockResolvedValue(true),
+      },
+    } as unknown as BotContext;
+
+    // Шаг 1 (индекс 1 — 2-й шаг Дня 1) имеет voiceFile: assets/audio/day01_s02_alphabet.mp3
+    if (fs.existsSync('assets/audio/day01_s02_alphabet.mp3')) {
+      await handleNextStep(ctx, 1, 1);
+
+      expect(replyWithVoiceMock).toHaveBeenCalledTimes(1);
+      const voiceOpts = replyWithVoiceMock.mock.calls[0][1];
+      expect(voiceOpts).toBeDefined();
+      expect(voiceOpts.caption).toContain('Английский алфавит');
+      expect(voiceOpts.parse_mode).toBe('HTML');
+      expect(voiceOpts.reply_markup).toBeDefined();
+      // Отдельный текстовый экран через reply НЕ отправляется
+      expect(replyMock).not.toHaveBeenCalled();
+      expect(ctx.session?.lastBotMessageId).toBe(201);
     }
   });
 });

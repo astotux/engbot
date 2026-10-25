@@ -39,6 +39,7 @@ import {
   cleanupAuxiliaryMessages,
   deleteUserMessage,
   deletePrevious,
+  setLastScreenMessageId,
 } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
 
@@ -269,53 +270,78 @@ export function getMp4Duration(filePath: string): number | null {
   return null;
 }
 
-export function stepHasMedia(step: LessonStep): boolean {
-  const candidates: (string | undefined)[] = [];
-  if ('voiceFile' in step && step.voiceFile) candidates.push(step.voiceFile);
-  if ('videoNoteFile' in step && step.videoNoteFile) candidates.push(step.videoNoteFile);
-  if ('audioFile' in step && step.audioFile) candidates.push(step.audioFile);
-
-  for (const f of candidates) {
-    if (!f) continue;
-    const resolved = path.resolve(f);
-    if (fs.existsSync(resolved)) return true;
-    const ext = path.extname(resolved).toLowerCase();
-    const altExt = ext === '.mp4' ? '.mp3' : ext === '.mp3' ? '.mp4' : '';
-    if (altExt && fs.existsSync(resolved.slice(0, -ext.length) + altExt)) return true;
+function resolveExistingMediaPath(filePath: string): string | null {
+  const resolved = path.resolve(filePath);
+  if (fs.existsSync(resolved)) return resolved;
+  const ext = path.extname(resolved).toLowerCase();
+  const altExt = ext === '.mp4' ? '.mp3' : ext === '.mp3' ? '.mp4' : '';
+  if (altExt) {
+    const altPath = resolved.slice(0, -ext.length) + altExt;
+    if (fs.existsSync(altPath)) return altPath;
   }
-  return false;
+  return null;
+}
+
+function isVoiceExtension(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === '.mp3' || ext === '.ogg' || ext === '.oga' || ext === '.m4a' || ext === '.wav';
+}
+
+export function getStepVoicePath(step: LessonStep): string | null {
+  if ('voiceFile' in step && step.voiceFile) {
+    const p = resolveExistingMediaPath(step.voiceFile);
+    if (p && (step.mediaType === 'voice' || isVoiceExtension(p))) return p;
+  }
+  if ('audioFile' in step && step.audioFile) {
+    const p = resolveExistingMediaPath(step.audioFile);
+    if (p) {
+      const mediaType = step.mediaType ?? (isVoiceExtension(p) ? 'voice' : 'video_note');
+      if (mediaType === 'voice') return p;
+    }
+  }
+  return null;
+}
+
+export function getStepVideoNotePath(step: LessonStep): string | null {
+  if ('videoNoteFile' in step && step.videoNoteFile) {
+    const p = resolveExistingMediaPath(step.videoNoteFile);
+    if (p && (step.mediaType === 'video_note' || !isVoiceExtension(p))) return p;
+  }
+  if ('audioFile' in step && step.audioFile) {
+    const p = resolveExistingMediaPath(step.audioFile);
+    if (p) {
+      const mediaType = step.mediaType ?? (isVoiceExtension(p) ? 'voice' : 'video_note');
+      if (mediaType === 'video_note') return p;
+    }
+  }
+  return null;
+}
+
+export function stepHasMedia(step: LessonStep): boolean {
+  return getStepVoicePath(step) !== null || getStepVideoNotePath(step) !== null;
 }
 
 // ─── Отправка медиафайлов шага (аудио MP3 или кружок MP4) ────────────────────
 
-export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<void> {
+export async function sendStepMedia(
+  ctx: BotContext,
+  step: LessonStep,
+  options?: { onlyVideoNote?: boolean },
+): Promise<void> {
   const sentPaths = new Set<string>();
 
   const sendFile = async (filePath: string, explicitType?: 'voice' | 'video_note'): Promise<void> => {
-    let resolvedPath = path.resolve(filePath);
-    if (sentPaths.has(resolvedPath)) return;
+    const resolvedPath = resolveExistingMediaPath(filePath);
+    if (!resolvedPath || sentPaths.has(resolvedPath)) return;
 
-    if (!fs.existsSync(resolvedPath)) {
-      // Fallback: если указан .mp4, но на диске .mp3 (или наоборот), используем существующий
-      const ext = path.extname(resolvedPath).toLowerCase();
-      const altExt = ext === '.mp4' ? '.mp3' : ext === '.mp3' ? '.mp4' : '';
-      if (altExt) {
-        const altPath = resolvedPath.slice(0, -ext.length) + altExt;
-        if (fs.existsSync(altPath)) {
-          resolvedPath = altPath;
-        } else {
-          return;
-        }
-      } else {
-        return;
-      }
+    const isAudio = isVoiceExtension(resolvedPath);
+    const mediaType = explicitType ?? step.mediaType ?? (isAudio ? 'voice' : 'video_note');
+
+    if (options?.onlyVideoNote && mediaType === 'voice') {
+      return;
     }
 
     sentPaths.add(resolvedPath);
-
-    const ext = path.extname(resolvedPath).toLowerCase();
-    const isAudio = ext === '.mp3' || ext === '.ogg' || ext === '.oga' || ext === '.m4a' || ext === '.wav';
-    const mediaType = explicitType ?? step.mediaType ?? (isAudio ? 'voice' : 'video_note');
 
     try {
       let sentMsg;
@@ -371,6 +397,38 @@ export async function sendStepMedia(ctx: BotContext, step: LessonStep): Promise<
   }
 }
 
+async function updateStepCaptionOrScreen(
+  ctx: BotContext,
+  step: LessonStep,
+  text: string,
+  replyMarkup: InlineKeyboard,
+): Promise<void> {
+  const voicePath = getStepVoicePath(step);
+  const chatId = ctx.chat?.id;
+  const msgId = ctx.callbackQuery?.message?.message_id ?? ctx.session?.lastBotMessageId;
+
+  if (voicePath && chatId && msgId && ctx.api?.editMessageCaption) {
+    try {
+      await ctx.api.editMessageCaption(chatId, msgId, {
+        caption: text,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      if (ctx.session) ctx.session.lastBotMessageId = msgId;
+      setLastScreenMessageId(chatId, msgId);
+      return;
+    } catch {
+      // Если сообщение было текстовым или превышен лимит — фоллбек ниже
+    }
+  }
+
+  await editScreen(ctx, text, {
+    parse_mode: 'HTML',
+    reply_markup: replyMarkup,
+    skipCleanup: true,
+  });
+}
+
 // ─── Отправка шага ────────────────────────────────────────────────────────────
 
 async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promise<void> {
@@ -381,56 +439,79 @@ async function sendStep(ctx: BotContext, day: number, stepIndex: number): Promis
   // Очищаем медиафайлы предыдущего шага
   await cleanupAuxiliaryMessages(ctx);
 
-  const hasMedia = stepHasMedia(step);
+  const voicePath = getStepVoicePath(step);
+  const videoNotePath = getStepVideoNotePath(step);
+  const hasAnyMedia = Boolean(voicePath || videoNotePath);
 
-  // Если шаг содержит голосовое или кружок, отправляем их ДО основного сообщения.
-  // Для этого удаляем предыдущий экран бота, отправляем медиа (оно окажется выше),
-  // а затем отправляем новое основное сообщение под медиа (forceNew: true).
-  if (hasMedia) {
-    await deletePrevious(ctx);
-    await sendStepMedia(ctx, step);
-  }
-
-  const screenOptions = {
-    parse_mode: 'HTML' as const,
-    skipCleanup: true,
-    forceNew: hasMedia,
-  };
+  // Формируем текст и клавиатуру шага
+  let text = '';
+  let replyMarkup: InlineKeyboard;
 
   if (step.type === 'explain') {
     ctx.session.awaitingStep = undefined;
-    const text = formatExplainStep(step, day, stepIndex, total);
+    text = formatExplainStep(step, day, stepIndex, total);
     const isLast = stepIndex === total - 1;
     const prevStep = stepIndex - 1;
-    await sendScreen(ctx, text, {
-      ...screenOptions,
-      reply_markup: isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep),
-    });
-
+    replyMarkup = isLast ? doneKeyboard(day, prevStep) : nextStepKeyboard(day, stepIndex + 1, prevStep);
   } else if (step.type === 'choice') {
     ctx.session.awaitingStep = undefined;
-    const text = formatChoiceStep(step, day, stepIndex, total);
-    await sendScreen(ctx, text, {
-      ...screenOptions,
-      reply_markup: choiceKeyboard(step, day, stepIndex),
-    });
-
+    text = formatChoiceStep(step, day, stepIndex, total);
+    replyMarkup = choiceKeyboard(step, day, stepIndex);
   } else if (step.type === 'input') {
-    const text = formatInputStep(step, day, stepIndex, total);
+    text = formatInputStep(step, day, stepIndex, total);
     ctx.session.awaitingStep = { day, stepIndex, type: 'input' };
-    await sendScreen(ctx, text, {
-      ...screenOptions,
-      reply_markup: inputKeyboard(day, stepIndex),
-    });
-
-  } else if (step.type === 'free') {
-    const text = formatFreeStep(step, day, stepIndex, total);
+    replyMarkup = inputKeyboard(day, stepIndex);
+  } else {
+    text = formatFreeStep(step, day, stepIndex, total);
     ctx.session.awaitingStep = { day, stepIndex, type: 'free' };
-    await sendScreen(ctx, text, {
-      ...screenOptions,
-      reply_markup: inputKeyboard(day, stepIndex),
-    });
+    replyMarkup = inputKeyboard(day, stepIndex);
   }
+
+  // Если шаг содержит кружок или голосовое, удаляем предыдущий экран бота
+  if (hasAnyMedia) {
+    await deletePrevious(ctx);
+  }
+
+  // 1. Кружок (video_note) отправляется как раньше — отдельным кружком сверху
+  if (videoNotePath) {
+    await sendStepMedia(ctx, step, { onlyVideoNote: true });
+  }
+
+  // 2. Голосовое (voice) отправляется ВМЕСТЕ с текстом и инлайн-кнопками в одном сообщении
+  if (voicePath && ctx.replyWithVoice) {
+    try {
+      const sentVoice = await ctx.replyWithVoice(new InputFile(voicePath), {
+        caption: text,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      if (sentVoice?.message_id) {
+        if (ctx.session) {
+          ctx.session.lastBotMessageId = sentVoice.message_id;
+        }
+        if (ctx.chat?.id) {
+          setLastScreenMessageId(ctx.chat.id, sentVoice.message_id);
+        }
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, voicePath }, 'Не удалось отправить голосовое с текстом в одном сообщении, фоллбек');
+      try {
+        const sentVoiceOnly = await ctx.replyWithVoice(new InputFile(voicePath));
+        if (sentVoiceOnly?.message_id) {
+          addCleanupMessage(ctx, sentVoiceOnly.message_id);
+        }
+      } catch {}
+    }
+  }
+
+  // 3. Обычный текстовый экран (если голосового нет или сработал фоллбек)
+  await sendScreen(ctx, text, {
+    parse_mode: 'HTML',
+    skipCleanup: true,
+    forceNew: hasAnyMedia,
+    reply_markup: replyMarkup,
+  });
 }
 
 // ─── Запуск урока напрямую (без проверки предупреждений) ─────────────────────
@@ -583,14 +664,11 @@ export async function handleChoiceCallback(
     // Неверно — обновляем этот же экран с подсказкой, кнопки остаются
     const step = getStep(day, stepIndex) as ChoiceStep;
     const baseText = formatChoiceStep(step, day, stepIndex, total);
-    await editScreen(
+    await updateStepCaptionOrScreen(
       ctx,
+      step,
       `${baseText}\n\n🤔 <b>Не совсем верно. Попробуй ещё раз!</b>\n💡 <i>${step.hint}</i>`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: choiceKeyboard(step, day, stepIndex),
-        skipCleanup: true,
-      },
+      choiceKeyboard(step, day, stepIndex),
     );
   }
 }
@@ -785,14 +863,11 @@ export async function handleUserAnswer(ctx: BotContext): Promise<void> {
       // Неверно — обновляем экран на месте, показываем ошибку и ждём следующую попытку
       const step = getStep(day, stepIndex) as InputStep;
       const baseText = formatInputStep(step, day, stepIndex, total);
-      await sendScreen(
+      await updateStepCaptionOrScreen(
         ctx,
+        step,
         `${baseText}\n\n🤔 <b>Не совсем верно:</b> «${text}»\n💡 <i>${step.hint}</i>`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: inputKeyboard(day, stepIndex),
-          skipCleanup: true,
-        },
+        inputKeyboard(day, stepIndex),
       );
     }
   }
