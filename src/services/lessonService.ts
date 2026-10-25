@@ -183,7 +183,7 @@ export function getAvailableDays(telegramId: number): number[] {
     const deliveries = getDb()
       .prepare(`
         SELECT day_number FROM lesson_deliveries
-        WHERE telegram_id = ? AND (status = 'sent' OR scheduled_at <= datetime('now'))
+        WHERE telegram_id = ? AND (status = 'sent' OR datetime(scheduled_at) <= datetime('now'))
       `)
       .all(telegramId) as Array<{ day_number: number }>;
     for (const d of deliveries) {

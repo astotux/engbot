@@ -740,10 +740,13 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   const total = getTotalSteps(day);
   markStepDone(telegramId, day, total - 1);
 
-  // Обновляем прогресс в базе
+  // Проверяем, какие уроки уже открыты по расписанию (до обновления current_day!)
+  const availableDays = getAvailableDays(telegramId);
+
+  // Обновляем прогресс в базе только если следующий незавершённый урок уже открыт по расписанию
   const earliestUncompleted = getEarliestUncompletedDay(telegramId);
   if (earliestUncompleted) {
-    if (earliestUncompleted > access.current_day) {
+    if (earliestUncompleted > access.current_day && availableDays.includes(earliestUncompleted)) {
       setCourseDay(telegramId, earliestUncompleted);
     }
   } else {
@@ -751,7 +754,6 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   }
 
   // Проверяем, доступен ли уже следующий урок
-  const availableDays = getAvailableDays(telegramId);
   const nextDay = day + 1;
   const isNextAvailable = nextDay <= 30 && availableDays.includes(nextDay);
 

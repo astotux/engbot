@@ -146,12 +146,12 @@ describe('Предупреждение о незавершённых урока�
 
       expect(text).toContain('⚠️ <b>Сначала нужно пройти предыдущий урок!</b>');
       expect(text).toContain('об <b>Уроке 3</b>');
-      expect(text).toContain('<b>День 2</b> ещё не завершён');
-      expect(text).toContain('✅ День 1:');
+      expect(text).toContain('<b>Урок 2</b> ещё не завершён');
+      expect(text).toContain('✅ Урок 1:');
       expect(text).toContain('пройден');
-      expect(text).toContain('⏳ <b>День 2:');
+      expect(text).toContain('⏳ <b>Урок 2:');
       expect(text).toContain('нужно пройти сейчас</b> 👈');
-      expect(text).toContain('🔓 День 3:');
+      expect(text).toContain('🔓 Урок 3:');
       expect(text).toContain('уже доступен');
     });
 
@@ -164,11 +164,11 @@ describe('Предупреждение о незавершённых урока�
       };
       const text = formatLessonWarning(info);
 
-      expect(text).toContain('День 3, День 4, День 5');
-      expect(text).toContain('⏳ <b>День 2:');
-      expect(text).toContain('🔓 День 3:');
-      expect(text).toContain('🔓 День 4:');
-      expect(text).toContain('🔓 День 5:');
+      expect(text).toContain('<b>3, 4, 5</b>');
+      expect(text).toContain('⏳ <b>Урок 2:');
+      expect(text).toContain('🔓 Урок 3:');
+      expect(text).toContain('🔓 Урок 4:');
+      expect(text).toContain('🔓 Урок 5:');
     });
 
     it('клавиатура предлагает начать урок с начала, если шаг 0', () => {
@@ -176,7 +176,7 @@ describe('Предупреждение о незавершённых урока�
       const buttons = kb.inline_keyboard.flat();
       const startBtn = buttons.find((b) => b.callback_data === 'start_required_lesson:2');
       expect(startBtn).toBeDefined();
-      expect(startBtn?.text).toBe('🚀 Начать День 2');
+      expect(startBtn?.text).toBe('🚀 Начать Урок 2');
     });
 
     it('клавиатура предлагает продолжить урок, если шаг > 0', () => {
@@ -184,7 +184,7 @@ describe('Предупреждение о незавершённых урока�
       const buttons = kb.inline_keyboard.flat();
       const contBtn = buttons.find((b) => b.callback_data === 'start_required_lesson:2');
       expect(contBtn).toBeDefined();
-      expect(contBtn?.text).toBe('▶️ Продолжить День 2 (шаг 3/6)');
+      expect(contBtn?.text).toBe('▶️ Продолжить Урок 2 (шаг 3/6)');
     });
   });
 
@@ -219,7 +219,7 @@ describe('Предупреждение о незавершённых урока�
 
       expect(sentScreenText).toContain('⚠️ <b>Сначала нужно пройти предыдущий урок!</b>');
       expect(sentScreenText).toContain('об <b>Уроке 3</b>');
-      expect(sentScreenText).toContain('⏳ <b>День 2:');
+      expect(sentScreenText).toContain('⏳ <b>Урок 2:');
 
       const buttons = sentKeyboard?.inline_keyboard?.flat();
       expect(buttons?.some((b: any) => b.callback_data === 'start_required_lesson:2')).toBe(true);
@@ -280,13 +280,50 @@ describe('Предупреждение о незавершённых урока�
 
       // В сообщении пишется, что 3 урок уже открыт
       expect(doneText).toContain('🎉 <b>Урок 2 завершён!</b>');
-      expect(doneText).toContain('⚡ <b>День 3');
+      expect(doneText).toContain('⚡ <b>Урок 3');
       expect(doneText).toContain('уже открыт</b>');
 
       const buttons = doneKb?.inline_keyboard?.flat();
       const nextBtn = buttons?.find((b: any) => b.callback_data === 'start_required_lesson:3');
       expect(nextBtn).toBeDefined();
       expect(nextBtn?.text).toContain('Перейти к уроку 3');
+    });
+
+    it('handleLessonDone после завершения 1 урока НЕ открывает 2 урок сразу, если он запланирован на завтра', async () => {
+      const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+      scheduleLessonDelivery(USER_ID, 2, tomorrow);
+
+      let doneText = '';
+      let doneKb: any;
+
+      const mockCtx: any = {
+        from: { id: USER_ID },
+        chat: { id: USER_ID },
+        session: {},
+        answerCallbackQuery: vi.fn(),
+        replyWithDocument: vi.fn(),
+        api: {
+          deleteMessage: vi.fn(),
+          editMessageText: vi.fn(),
+        },
+        reply: vi.fn(async (text: string, opts?: any) => {
+          doneText = text;
+          doneKb = opts?.reply_markup;
+          return { message_id: 444 };
+        }),
+      };
+
+      await handleLessonDone(mockCtx, 1);
+
+      // День 2 НЕ должен появиться в доступных уроках
+      expect(getAvailableDays(USER_ID)).toEqual([1]);
+      expect(doneText).toContain('🎉 <b>Урок 1 завершён!</b>');
+      expect(doneText).toContain('следующий урок придёт завтра по расписанию');
+      expect(doneText).not.toContain('уже открыт');
+
+      const buttons = doneKb?.inline_keyboard?.flat();
+      const nextBtn = buttons?.find((b: any) => b.callback_data === 'start_required_lesson:2');
+      expect(nextBtn).toBeUndefined();
     });
   });
 });
