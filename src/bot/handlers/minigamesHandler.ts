@@ -37,12 +37,11 @@ async function showMinigameLockedScreen(ctx: BotContext, gameName: string): Prom
     ctx,
     `🔒 <b>${gameName} — в подарок к курсу!</b>\n\n` +
       `Эта игра открывается после оплаты уроков курса <b>«Английский за 30 дней»</b>.\n\n` +
-      `🎁 <b>При покупке курса ты получаешь все мини-игры в подарок навсегда:</b>\n` +
+      `🎁 <b>При покупке курса ты получаешь все мини-игры в подарок:</b>\n` +
       `• 🧠 <b>Тренажёр слов</b> — 500+ слов, безлимитные тесты и повторение ошибок\n` +
       `• 🧩 <b>Конструктор фраз</b> — ${PHRASE_BUILDER_ITEMS.length} предложений для тренировки порядка слов\n` +
       `• 💬 <b>Тренажёр диалогов</b> — ${DIALOGUE_SCENARIOS.length} реальных жизненных сценариев\n\n` +
-      `💳 <b>Стоимость курса со всеми играми: всего ${config.coursePriceRub} ₽</b>\n\n` +
-      `<i>А пока ты можешь бесплатно попробовать демо-тест в «🧠 Тренажёре слов»!</i>`,
+      `💳 <b>Стоимость курса со всеми играми: всего ${config.coursePriceRub} ₽</b>\n\n`,
     {
       parse_mode: 'HTML',
       reply_markup: buyCourseForGamesKeyboard(),
@@ -72,8 +71,8 @@ export function formatMinigamesMenuText(telegramId: number): string {
   return (
     `🎮 <b>Мини-игры и тренажёры</b>\n\n` +
     `Тренируй словарный запас, порядок слов и живую разговорную речь в игровом формате:\n\n` +
-    `🧠 <b>Тренажёр слов</b> — 500+ слов по уровням (A1–C2), тесты и работа над ошибками\n` +
-    `🧩 <b>Конструктор фраз</b> — ${totalPhrases} предложений (A1–B1): собирай фразы из перемешанных слов <i>(собрано: ${progress.phrasesCompleted})</i>\n` +
+    `🧠 <b>Тренажёр слов</b> — 500+ слов по уровням, тесты и работа над ошибками\n` +
+    `🧩 <b>Конструктор фраз</b> — ${totalPhrases} предложений: собирай фразы из перемешанных слов <i>(собрано: ${progress.phrasesCompleted})</i>\n` +
     `💬 <b>Тренажёр диалогов</b> — ${totalDialogues} жизненных сценариев: кофейня, ресторан, отель, аэропорт, шопинг, врач, собеседование <i>(пройдено: ${completedDialogues}/${totalDialogues})</i>\n\n` +
     `<i>Выбери мини-игру:</i>`
   );
@@ -366,7 +365,7 @@ export async function handleDialogueMenu(ctx: BotContext): Promise<void> {
 
   const progress = getMinigameProgress(telegramId);
   let text =
-    `💬 <b>Тренажёр диалогов (Симулятор реальной жизни 💬)</b>\n\n` +
+    `💬 <b>Тренажёр диалогов</b>\n\n` +
     `Погрузись в реальные жизненные ситуации и выбирай правильные реплики на английском:\n\n`;
 
   for (const sc of DIALOGUE_SCENARIOS) {

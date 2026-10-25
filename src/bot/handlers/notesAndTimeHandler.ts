@@ -27,10 +27,10 @@ export function getUserNotesList(telegramId: number): NoteItem[] {
     {
       id: 'checklist',
       day: 0,
-      title: 'Бесплатный чек-лист «50 самых нужных английских слов»',
-      subtitle: 'Фундамент из 50 ключевых слов и выражений для старта и первых диалогов.',
+      title: 'Бесплатный чек-лист',
+      subtitle: 'Крепкий фундамент для начала изучения английского.',
       filePath: config.freeChecklistPath ? path.resolve(config.freeChecklistPath) : '',
-      fileName: 'checklist-english-50-words.pdf',
+      fileName: 'checklist-english.pdf',
       isChecklist: true,
     },
   ];
