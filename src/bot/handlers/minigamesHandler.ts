@@ -381,9 +381,19 @@ export async function handleDialogueMenu(ctx: BotContext): Promise<void> {
   });
 }
 
+export function shuffleOptionIndices(count: number): number[] {
+  const indices = Array.from({ length: count }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices;
+}
+
 function formatDialogueTurnText(
   scenario: DialogueScenario,
   turnIndex: number,
+  optionOrder: number[],
   feedbackNotice?: string,
 ): string {
   const turn = scenario.turns[turnIndex];
@@ -394,8 +404,11 @@ function formatDialogueTurnText(
     `<i>(${turn.speakerLineRu})</i>\n\n` +
     `💬 <b>Как ты ответишь? Выбери подходящую реплику:</b>\n\n`;
 
-  turn.options.forEach((opt, idx) => {
-    text += `<b>${idx + 1}.</b> ${opt.textEn}\n`;
+  optionOrder.forEach((origIdx, displayIdx) => {
+    const opt = turn.options[origIdx];
+    if (opt) {
+      text += `<b>${displayIdx + 1}.</b> ${opt.textEn}\n`;
+    }
   });
 
   if (feedbackNotice) {
@@ -405,13 +418,19 @@ function formatDialogueTurnText(
   return text;
 }
 
-function dialogueTurnKeyboard(scenario: DialogueScenario, turnIndex: number): InlineKeyboard {
+function dialogueTurnKeyboard(
+  scenario: DialogueScenario,
+  turnIndex: number,
+  optionOrder: number[],
+): InlineKeyboard {
   const turn = scenario.turns[turnIndex];
   const kb = new InlineKeyboard();
-  turn.options.forEach((opt, idx) => {
-    const label = `${idx + 1}. ${opt.textEn}`;
+  optionOrder.forEach((origIdx, displayIdx) => {
+    const opt = turn.options[origIdx];
+    if (!opt) return;
+    const label = `${displayIdx + 1}. ${opt.textEn}`;
     const shortLabel = label.length > 48 ? label.slice(0, 45) + '...' : label;
-    kb.text(shortLabel, `games:d_ans:${scenario.id}:${turnIndex}:${idx}`).row();
+    kb.text(shortLabel, `games:d_ans:${scenario.id}:${turnIndex}:${origIdx}`).row();
   });
   kb.text('◀️ К выбору диалога', 'games:dialogue').text('🏠 В меню', 'main_menu');
   return kb;
@@ -433,15 +452,17 @@ export async function handleDialogueStart(ctx: BotContext, scenarioId: string): 
     return;
   }
 
+  const optionOrder = shuffleOptionIndices(scenario.turns[0].options.length);
   ctx.session.dialogueState = {
     scenarioId: scenario.id,
     turnIndex: 0,
     mistakes: 0,
+    optionOrder,
   };
 
-  await editScreen(ctx, formatDialogueTurnText(scenario, 0), {
+  await editScreen(ctx, formatDialogueTurnText(scenario, 0, optionOrder), {
     parse_mode: 'HTML',
-    reply_markup: dialogueTurnKeyboard(scenario, 0),
+    reply_markup: dialogueTurnKeyboard(scenario, 0, optionOrder),
   });
 }
 
@@ -464,7 +485,12 @@ export async function handleDialogueAnswer(
   }
 
   if (!ctx.session.dialogueState || ctx.session.dialogueState.scenarioId !== scenarioId) {
-    ctx.session.dialogueState = { scenarioId, turnIndex, mistakes: 0 };
+    ctx.session.dialogueState = {
+      scenarioId,
+      turnIndex,
+      mistakes: 0,
+      optionOrder: shuffleOptionIndices(turn.options.length),
+    };
   }
 
   if (!option.isCorrect) {
@@ -476,13 +502,19 @@ export async function handleDialogueAnswer(
       });
     }
 
+    const currentOrder =
+      ctx.session.dialogueState.optionOrder?.length === turn.options.length
+        ? ctx.session.dialogueState.optionOrder
+        : shuffleOptionIndices(turn.options.length);
+    ctx.session.dialogueState.optionOrder = currentOrder;
+
     const wrongNotice =
       `❌ <b>Не совсем:</b> «<i>${option.textEn}</i>» (${option.textRu})\n` +
       `💡 ${option.feedback}`;
 
-    await editScreen(ctx, formatDialogueTurnText(scenario, turnIndex, wrongNotice), {
+    await editScreen(ctx, formatDialogueTurnText(scenario, turnIndex, currentOrder, wrongNotice), {
       parse_mode: 'HTML',
-      reply_markup: dialogueTurnKeyboard(scenario, turnIndex),
+      reply_markup: dialogueTurnKeyboard(scenario, turnIndex, currentOrder),
     });
     return;
   }
@@ -519,11 +551,14 @@ export async function handleDialogueAnswer(
 
   // Переход к следующей реплике диалога
   const nextTurnIndex = turnIndex + 1;
+  const nextTurn = scenario.turns[nextTurnIndex];
+  const nextOptionOrder = shuffleOptionIndices(nextTurn.options.length);
   ctx.session.dialogueState.turnIndex = nextTurnIndex;
+  ctx.session.dialogueState.optionOrder = nextOptionOrder;
   const prevFeedback = `✅ <b>Отлично!</b> ${option.feedback}`;
 
-  await editScreen(ctx, formatDialogueTurnText(scenario, nextTurnIndex, prevFeedback), {
+  await editScreen(ctx, formatDialogueTurnText(scenario, nextTurnIndex, nextOptionOrder, prevFeedback), {
     parse_mode: 'HTML',
-    reply_markup: dialogueTurnKeyboard(scenario, nextTurnIndex),
+    reply_markup: dialogueTurnKeyboard(scenario, nextTurnIndex, nextOptionOrder),
   });
 }

@@ -37,6 +37,7 @@ export interface SessionData {
     scenarioId: string;
     turnIndex: number;
     mistakes: number;
+    optionOrder?: number[];
   };
 }
 
