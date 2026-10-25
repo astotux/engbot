@@ -626,7 +626,7 @@ export async function handleLesson(ctx: BotContext, targetDay?: number): Promise
     } else {
       await sendScreen(
         ctx,
-        '📭 Урок ещё не готов — он придёт по расписанию.',
+        '📭 Урок ещё не готов — приходи завтра!',
         { reply_markup: mainMenuKeyboard(true) },
       );
     }
