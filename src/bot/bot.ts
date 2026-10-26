@@ -91,11 +91,13 @@ export function createBot(): Bot<BotContext> {
       deleteUserMessage(ctx);
     }
 
-    // Если пользователь нажал инлайн-кнопку на предыдущем основном сообщении (а не на самой уведе об уроке),
-    // удаляем висящее уведомление об уроке / напоминание
+    // Если пользователь нажал инлайн-кнопку на предыдущем основном сообщении (а не на самой уведе об уроке или воронке),
+    // удаляем висящее уведомление об уроке / напоминание / воронку
     if (userId && ctx.callbackQuery?.message && ctx.api?.deleteMessage) {
       const cbMsgId = ctx.callbackQuery.message.message_id;
-      const isNotifBtn = ctx.callbackQuery.data?.startsWith('start_scheduled_lesson');
+      const isNotifBtn =
+        ctx.callbackQuery.data?.startsWith('start_scheduled_lesson') ||
+        ctx.callbackQuery.data?.startsWith('funnel:');
       if (!isNotifBtn) {
         const notif = getLessonNotification(userId);
         if (notif) {
@@ -145,6 +147,38 @@ export function createBot(): Bot<BotContext> {
   });
   bot.callbackQuery('admin:report', async (ctx) => {
     await handleAdminReport(ctx);
+  });
+
+  // ── Автоворонка (инлайн-кнопки) ───────────────────────────────────────────
+  bot.callbackQuery(/^funnel:(buy|menu)$/, async (ctx) => {
+    const action = ctx.match[1];
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    // Удаляем предыдущее основное сообщение бота, если оно было
+    const cbMsgId = ctx.callbackQuery?.message?.message_id;
+    const prevMainId = ctx.session?.lastBotMessageId;
+    if (prevMainId && prevMainId !== cbMsgId && ctx.api?.deleteMessage) {
+      try {
+        await ctx.api.deleteMessage(telegramId, prevMainId);
+      } catch {}
+    }
+    if (ctx.session && cbMsgId) {
+      ctx.session.lastBotMessageId = cbMsgId;
+    }
+    clearLessonNotification(telegramId);
+
+    if (action === 'buy') {
+      await handleBuyCourse(ctx);
+    } else {
+      await ctx.answerCallbackQuery();
+      const hasCourse = hasUserCourseAccess(telegramId);
+      const text = formatMenuText(hasCourse, ctx.from?.first_name);
+      await editScreen(ctx, text, {
+        parse_mode: 'HTML',
+        reply_markup: mainMenuKeyboard(hasCourse),
+      });
+    }
   });
 
   // ── Inline callbacks ───────────────────────────────────────────────────────

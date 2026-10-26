@@ -30,6 +30,7 @@ import { getBotInstance } from '../bot/botInstance.js';
 import { getLastScreenMessageId } from '../bot/sendHelper.js';
 import { notifyPurchase } from './notifyService.js';
 import { scheduleAllLessons } from './lessonService.js';
+import { cancelLeadFunnel } from '../db/repositories/leadFunnel.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -141,6 +142,7 @@ export async function processPaymentSuccess(payment: Payment, _verified?: Yookas
   // Планируем все уроки для пользователя
   try {
     scheduleAllLessons(payment.telegram_id);
+    cancelLeadFunnel(payment.telegram_id);
   } catch (err) {
     logger.error({ err, telegramId: payment.telegram_id }, 'Ошибка планирования уроков после оплаты');
   }

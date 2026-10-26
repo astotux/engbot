@@ -9,6 +9,7 @@ import { notifyNewUser } from '../../services/notifyService.js';
 import { isSubscribed, getChannelName } from '../../services/subscriptionService.js';
 import { sendScreen, sendPersistentDocument, editScreen, deletePrevious } from '../sendHelper.js';
 import { getCourseAccess } from '../../db/repositories/courseAccess.js';
+import { scheduleLeadFunnel } from '../../db/repositories/leadFunnel.js';
 import fs from 'fs';
 import path from 'path';
 import { InputFile, InlineKeyboard } from 'grammy';
@@ -166,8 +167,13 @@ async function deliverChecklist(ctx: BotContext): Promise<void> {
       caption + '\n\n<i>(Файл конспекта скоро появится, начни обучение кнопками ниже):</i>',
       { parse_mode: 'HTML', reply_markup: checklistKeyboard() },
     );
+    const telegramId = ctx.from?.id;
+    if (telegramId) scheduleLeadFunnel(telegramId, 'checklist');
     return;
   }
+
+  const telegramId = ctx.from?.id;
+  if (telegramId) scheduleLeadFunnel(telegramId, 'checklist');
 
   await sendPersistentDocument(
     ctx,

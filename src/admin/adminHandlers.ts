@@ -12,6 +12,7 @@ import {
   hasUserCourseAccess,
 } from '../db/repositories/courseAccess.js';
 import { getCompletedDays } from '../db/repositories/lessons.js';
+import { cancelLeadFunnel } from '../db/repositories/leadFunnel.js';
 import { logAdminAction, getRecentAuditLogs } from '../db/repositories/adminAudit.js';
 import { getLessonByDay } from '../content/course.js';
 import { formatLessonMessage } from '../bot/handlers/lessonHandler.js';
@@ -222,6 +223,7 @@ export async function handleAdminToggleAccess(
     grantCourseAccess(targetId);
     startCourse(targetId);
     scheduleAllLessons(targetId);
+    cancelLeadFunnel(targetId);
     logAdminAction(adminId, 'grant_access', targetId, 'Ручная выдача доступа (админ-панель)');
     logger.info({ adminId, targetId }, 'Ручная выдача доступа через админ-панель');
     if (ctx.callbackQuery) {
@@ -300,6 +302,7 @@ export async function handleAdminGrant(ctx: BotContext, targetId: number): Promi
   grantCourseAccess(targetId);
   startCourse(targetId);
   scheduleAllLessons(targetId);
+  cancelLeadFunnel(targetId);
   logAdminAction(adminId, 'grant_access', targetId, 'Ручная выдача доступа');
   await ctx.reply(`✅ Доступ к курсу выдан пользователю ${targetId}.`);
   logger.info({ adminId, targetId }, 'Ручная выдача доступа');

@@ -4,6 +4,7 @@ import { getActivePaymentForUser } from '../../db/repositories/payments.js';
 import { getPendingOutboxEvents, markOutboxProcessed } from '../../db/repositories/outbox.js';
 import { mainMenuKeyboard, courseInfoKeyboard } from '../keyboards/mainMenu.js';
 import { initiatePurchase, verifyPaymentById } from '../../services/purchaseService.js';
+import { scheduleLeadFunnel } from '../../db/repositories/leadFunnel.js';
 import { scheduleAllLessons } from '../../services/lessonService.js';
 import { editScreen, getLastScreenMessageId, setLastScreenMessageId } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
@@ -109,6 +110,7 @@ export async function handleBuyCourse(ctx: BotContext): Promise<void> {
     const { paymentUrl, paymentId, orderId } = await initiatePurchase(telegramId);
     ctx.session.lastPaymentId = paymentId;
     ctx.session.lastOrderId = orderId;
+    scheduleLeadFunnel(telegramId, 'buy_abandoned');
 
     await editScreen(
       ctx,

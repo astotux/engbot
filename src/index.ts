@@ -15,6 +15,10 @@ import {
   startWeeklyReportScheduler,
   stopWeeklyReportScheduler,
 } from './scheduler/weeklyReportScheduler.js';
+import {
+  startFunnelScheduler,
+  stopFunnelScheduler,
+} from './scheduler/funnelScheduler.js';
 
 async function main(): Promise<void> {
   logger.info('Запуск бота...');
@@ -30,6 +34,7 @@ async function main(): Promise<void> {
 
   startScheduler(bot);
   startReminderScheduler(bot);
+  startFunnelScheduler(bot);
   startPaymentReconciliationScheduler(bot);
   startWeeklyReportScheduler(bot);
 
@@ -59,6 +64,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Получен сигнал завершения');
     stopScheduler();
     stopReminderScheduler();
+    stopFunnelScheduler();
     stopPaymentReconciliationScheduler();
     stopWeeklyReportScheduler();
     await bot.stop();
