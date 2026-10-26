@@ -22,7 +22,7 @@ const html = pages
   .map((pg, i) => {
     const n = i + 1;
     if (pg.cls) return `<section class="page ${pg.cls}">${pg.body}</section>`;
-    return `<section class="page"><div class="hdr"><span><b>engbot</b> · Английский с нуля</span><span>${pg.section}</span></div><div class="body">${pg.body}</div><div class="ftr"><span>@engbot · учи английский каждый день</span><span class="pn">${n} / ${total}</span></div></section>`;
+    return `<section class="page"><div class="hdr"><span><b>ENGLISH zero</b> · Английский с нуля</span><span>${pg.section}</span></div><div class="body">${pg.body}</div><div class="ftr"><span>@engl_zero · учи английский каждый день</span><span class="pn">${n} / ${total}</span></div></section>`;
   })
   .join('\n');
 

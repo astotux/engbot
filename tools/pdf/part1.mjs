@@ -4,7 +4,7 @@ const cover = `
 <div class="blob" style="width:170mm;height:170mm;right:-60mm;top:-50mm;background:rgba(255,255,255,.07)"></div>
 <div class="blob" style="width:110mm;height:110mm;left:-40mm;bottom:20mm;background:rgba(251,191,36,.14)"></div>
 <div class="blob" style="width:60mm;height:60mm;right:20mm;bottom:40mm;background:rgba(16,185,129,.2)"></div>
-<div style="position:absolute;left:20mm;top:22mm;font-weight:800;letter-spacing:.18em;font-size:11pt">ENGBOT</div>
+<div style="position:absolute;left:20mm;top:22mm;font-weight:800;letter-spacing:.18em;font-size:11pt">ENGLISH zero</div>
 <div style="position:absolute;left:20mm;top:98mm;right:20mm">
   <span class="chip" style="background:rgba(255,255,255,.16);color:#fff">Бесплатный гид · A0 → A2</span>
   <div style="font-size:46pt;font-weight:800;line-height:1.02;letter-spacing:-.03em;margin:8mm 0 6mm">Английский<br>с нуля<br><span style="color:#fbbf24">за 30 дней</span></div>

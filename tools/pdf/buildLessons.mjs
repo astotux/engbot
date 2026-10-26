@@ -37,7 +37,7 @@ export async function buildDayPdf(dayNum) {
   const html = pages
     .map((body, i) => {
       const n = i + 1;
-      return `<section class="page"><div class="hdr"><span><b>engbot</b> · Конспект урока · День ${day}</span><span>${title}</span></div><div class="body">${body}</div><div class="ftr"><span>@engbot · Английский с нуля за 30 дней</span><span class="pn">${n} / ${total}</span></div></section>`;
+      return `<section class="page"><div class="hdr"><span><b>ENGLISH zero</b> · Конспект урока · День ${day}</span><span>${title}</span></div><div class="body">${body}</div><div class="ftr"><span>@engl_zero · Английский с нуля за 30 дней</span><span class="pn">${n} / ${total}</span></div></section>`;
     })
     .join('\n');
 
