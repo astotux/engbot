@@ -84,3 +84,9 @@ export function countUsers(): number {
   const row = getDb().prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
   return row.cnt;
 }
+
+export function getUsersPaginated(limit: number, offset: number): User[] {
+  return getDb()
+    .prepare('SELECT * FROM users ORDER BY id DESC LIMIT ? OFFSET ?')
+    .all(limit, offset) as User[];
+}

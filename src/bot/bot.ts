@@ -62,7 +62,13 @@ import {
   handleDialogueStart,
   handleDialogueAnswer,
 } from './handlers/minigamesHandler.js';
-import { handleAdminCommand } from '../admin/adminHandlers.js';
+import {
+  handleAdminCommand,
+  handleAdminUsersList,
+  handleAdminUserCard,
+  handleAdminToggleAccess,
+  handleAdminReport,
+} from '../admin/adminHandlers.js';
 import { getCourseAccess, pauseCourse, hasUserCourseAccess } from '../db/repositories/courseAccess.js';
 import { getAvailableDays } from '../services/lessonService.js';
 import { isDayCompleted } from '../db/repositories/lessonSteps.js';
@@ -117,9 +123,29 @@ export function createBot(): Bot<BotContext> {
   bot.command('notes', async (ctx) => handleNotesMenu(ctx, 0));
   bot.command('games', handleMinigamesMenu);
 
-  for (const cmd of ['admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_report', 'admin_help']) {
+  for (const cmd of ['admin', 'admin_users', 'admin_stats', 'admin_user', 'admin_grant', 'admin_revoke', 'admin_lesson', 'admin_msg', 'admin_audit', 'admin_report', 'admin_help']) {
     bot.command(cmd, handleAdminCommand);
   }
+
+  // ── Админ-панель (инлайн-кнопки) ───────────────────────────────────────────
+  bot.callbackQuery('admin:noop', async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+  bot.callbackQuery(/^admin:users:(\d+)$/, async (ctx) => {
+    await handleAdminUsersList(ctx, Number(ctx.match[1]));
+  });
+  bot.callbackQuery(/^admin:user:(\d+):(\d+)$/, async (ctx) => {
+    await handleAdminUserCard(ctx, Number(ctx.match[1]), Number(ctx.match[2]));
+  });
+  bot.callbackQuery(/^admin:grant:(\d+):(\d+)$/, async (ctx) => {
+    await handleAdminToggleAccess(ctx, Number(ctx.match[1]), Number(ctx.match[2]), 'grant');
+  });
+  bot.callbackQuery(/^admin:revoke:(\d+):(\d+)$/, async (ctx) => {
+    await handleAdminToggleAccess(ctx, Number(ctx.match[1]), Number(ctx.match[2]), 'revoke');
+  });
+  bot.callbackQuery('admin:report', async (ctx) => {
+    await handleAdminReport(ctx);
+  });
 
   // ── Inline callbacks ───────────────────────────────────────────────────────
 

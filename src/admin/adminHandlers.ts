@@ -1,6 +1,6 @@
 import type { BotContext } from '../bot/context.js';
 import { config } from '../config/index.js';
-import { countUsers, getUserByTelegramId } from '../db/repositories/users.js';
+import { countUsers, getUserByTelegramId, getUsersPaginated, type User } from '../db/repositories/users.js';
 import { countPaidOrders, sumRevenue } from '../db/repositories/orders.js';
 import {
   countActiveCourses,
@@ -9,14 +9,18 @@ import {
   grantCourseAccess,
   revokeCourse,
   startCourse,
+  hasUserCourseAccess,
 } from '../db/repositories/courseAccess.js';
+import { getCompletedDays } from '../db/repositories/lessons.js';
 import { logAdminAction, getRecentAuditLogs } from '../db/repositories/adminAudit.js';
 import { getLessonByDay } from '../content/course.js';
 import { formatLessonMessage } from '../bot/handlers/lessonHandler.js';
 import { scheduleAllLessons } from '../services/lessonService.js';
 import { generateReport, cleanupReport } from '../services/reportService.js';
 import { logger } from '../utils/logger.js';
-import { InputFile } from 'grammy';
+import { InlineKeyboard, InputFile } from 'grammy';
+
+export const ADMIN_USERS_PER_PAGE = 8;
 
 function isAdmin(telegramId: number): boolean {
   return config.adminIds.includes(telegramId);
@@ -25,10 +29,218 @@ function isAdmin(telegramId: number): boolean {
 function requireAdmin(ctx: BotContext): boolean {
   const id = ctx.from?.id;
   if (!id || !isAdmin(id)) {
-    void ctx.reply('❌ Нет доступа.');
+    if (ctx.callbackQuery) {
+      void ctx.answerCallbackQuery({ text: '❌ Нет доступа.', show_alert: true });
+    } else {
+      void ctx.reply('❌ Нет доступа.');
+    }
     return false;
   }
   return true;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatUserButtonLabel(user: User, hasAccess: boolean): string {
+  const statusIcon = hasAccess ? '✅' : '⚪';
+  const namePart = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || 'Без имени';
+  const usernamePart = user.username ? ` (@${user.username})` : '';
+  const raw = `${statusIcon} ${namePart}${usernamePart} • ${user.telegram_id}`;
+  return raw.length > 55 ? raw.slice(0, 52) + '...' : raw;
+}
+
+export async function handleAdminUsersList(ctx: BotContext, page = 0): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.answerCallbackQuery();
+    } catch {}
+  }
+
+  const totalUsers = countUsers();
+  const activeCourses = countActiveCourses();
+  const totalPages = Math.max(1, Math.ceil(totalUsers / ADMIN_USERS_PER_PAGE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const offset = safePage * ADMIN_USERS_PER_PAGE;
+  const users = getUsersPaginated(ADMIN_USERS_PER_PAGE, offset);
+
+  const text =
+    `🛠 <b>Панель администратора — Пользователи</b>\n\n` +
+    `👥 Всего пользователей: <b>${totalUsers}</b>\n` +
+    `📚 С активным курсом: <b>${activeCourses}</b>\n` +
+    `📄 Страница: <b>${safePage + 1} из ${totalPages}</b>\n\n` +
+    `<i>Нажми на пользователя ниже, чтобы посмотреть подробную информацию, выдать или забрать доступ к курсу:</i>\n` +
+    `<i>(✅ — есть доступ к курсу, ⚪ — без доступа)</i>`;
+
+  const kb = new InlineKeyboard();
+
+  for (const u of users) {
+    const hasAccess = hasUserCourseAccess(u.telegram_id);
+    kb.text(formatUserButtonLabel(u, hasAccess), `admin:user:${u.telegram_id}:${safePage}`).row();
+  }
+
+  if (totalPages > 1) {
+    if (safePage > 0) {
+      kb.text('◀️ Сюда', `admin:users:${safePage - 1}`);
+    }
+    kb.text(`📄 ${safePage + 1} / ${totalPages}`, 'admin:noop');
+    if (safePage < totalPages - 1) {
+      kb.text('Туда ▶️', `admin:users:${safePage + 1}`);
+    }
+    kb.row();
+  }
+
+  kb.text('📊 Скачать отчёт (Excel)', 'admin:report')
+    .text('🔄 Обновить', `admin:users:${safePage}`);
+
+  if (ctx.callbackQuery?.message && ctx.api?.editMessageText) {
+    try {
+      await ctx.api.editMessageText(
+        ctx.callbackQuery.message.chat.id,
+        ctx.callbackQuery.message.message_id,
+        text,
+        { parse_mode: 'HTML', reply_markup: kb },
+      );
+      return;
+    } catch {
+      // Если сообщение не изменилось или не удалось отредактировать — игнорируем / отправляем заново
+    }
+  }
+
+  await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+}
+
+function formatCourseStatusRu(status?: string, paused?: number): string {
+  if (!status) return '⚪ Нет доступа';
+  if (status === 'active') return paused ? '⏸ Активен (на паузе)' : '✅ Активен';
+  if (status === 'completed') return '🏆 Курс завершён';
+  if (status === 'pending') return '⏳ Выдан (ожидает старта)';
+  if (status === 'revoked') return '❌ Отозван';
+  return status;
+}
+
+export async function handleAdminUserCard(
+  ctx: BotContext,
+  targetId: number,
+  page = 0,
+  notice?: string,
+): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  if (ctx.callbackQuery && !notice) {
+    try {
+      await ctx.answerCallbackQuery();
+    } catch {}
+  }
+
+  const user = getUserByTelegramId(targetId);
+  if (!user) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: '❌ Пользователь не найден', show_alert: true });
+    } else {
+      await ctx.reply(`❌ Пользователь ${targetId} не найден.`);
+    }
+    return;
+  }
+
+  const access = getCourseAccess(targetId);
+  const hasAccess = hasUserCourseAccess(targetId);
+  const completedDays = getCompletedDays(targetId);
+  const fullName = escapeHtml([user.first_name, user.last_name].filter(Boolean).join(' ').trim() || '—');
+  const usernameStr = user.username ? `@${escapeHtml(user.username)}` : '—';
+
+  let text = `👤 <b>Карточка пользователя</b>\n\n`;
+  if (notice) {
+    text += `${notice}\n\n`;
+  }
+
+  text +=
+    `🆔 <b>Telegram ID:</b> <code>${user.telegram_id}</code>\n` +
+    `📛 <b>Имя:</b> ${fullName}\n` +
+    `🔗 <b>Username:</b> ${usernameStr}\n` +
+    `📅 <b>Зарегистрирован:</b> ${user.registered_at}\n` +
+    `🌐 <b>Язык:</b> ${user.language_code ?? '—'}  |  <b>Источник:</b> ${escapeHtml(user.source ?? '—')}\n` +
+    `🔔 <b>Напоминания:</b> ${user.reminders_enabled ? 'Вкл' : 'Выкл'}\n` +
+    `🚫 <b>Заблокировал бота:</b> ${user.is_blocked ? 'Да' : 'Нет'}\n\n` +
+    `📚 <b>Доступ к курсу:</b>\n` +
+    `• <b>Статус:</b> ${formatCourseStatusRu(access?.status, access?.paused)}\n`;
+
+  if (access) {
+    text +=
+      `• <b>Текущий урок:</b> День ${access.current_day} из 30\n` +
+      `• <b>Пройдено уроков:</b> ${completedDays.length} из 30\n` +
+      `• <b>Дата старта:</b> ${access.started_at ?? '—'}\n`;
+  }
+
+  const kb = new InlineKeyboard();
+  if (hasAccess) {
+    kb.text('🚫 Забрать доступ к курсу', `admin:revoke:${targetId}:${page}`).row();
+  } else {
+    kb.text('✅ Выдать доступ к курсу', `admin:grant:${targetId}:${page}`).row();
+  }
+  kb.text('◀️ К списку пользователей', `admin:users:${page}`);
+
+  if (ctx.callbackQuery?.message && ctx.api?.editMessageText) {
+    try {
+      await ctx.api.editMessageText(
+        ctx.callbackQuery.message.chat.id,
+        ctx.callbackQuery.message.message_id,
+        text,
+        { parse_mode: 'HTML', reply_markup: kb },
+      );
+      return;
+    } catch {
+      // Фоллбек на обычную отправку
+    }
+  }
+
+  await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+}
+
+export async function handleAdminToggleAccess(
+  ctx: BotContext,
+  targetId: number,
+  page: number,
+  action: 'grant' | 'revoke',
+): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  const adminId = ctx.from!.id;
+
+  const user = getUserByTelegramId(targetId);
+  if (!user) {
+    if (ctx.callbackQuery) {
+      await ctx.answerCallbackQuery({ text: '❌ Пользователь не найден', show_alert: true });
+    }
+    return;
+  }
+
+  if (action === 'grant') {
+    grantCourseAccess(targetId);
+    startCourse(targetId);
+    scheduleAllLessons(targetId);
+    logAdminAction(adminId, 'grant_access', targetId, 'Ручная выдача доступа (админ-панель)');
+    logger.info({ adminId, targetId }, 'Ручная выдача доступа через админ-панель');
+    if (ctx.callbackQuery) {
+      try {
+        await ctx.answerCallbackQuery({ text: '✅ Доступ к курсу выдан!' });
+      } catch {}
+    }
+    await handleAdminUserCard(ctx, targetId, page, '✅ <b>Доступ к курсу успешно выдан!</b>');
+  } else {
+    revokeCourse(targetId);
+    logAdminAction(adminId, 'revoke_access', targetId, 'Ручной отзыв доступа (админ-панель)');
+    logger.info({ adminId, targetId }, 'Ручной отзыв доступа через админ-панель');
+    if (ctx.callbackQuery) {
+      try {
+        await ctx.answerCallbackQuery({ text: '🚫 Доступ к курсу отозван!' });
+      } catch {}
+    }
+    await handleAdminUserCard(ctx, targetId, page, '🚫 <b>Доступ к курсу отозван.</b>');
+  }
 }
 
 export async function handleAdminStats(ctx: BotContext): Promise<void> {
@@ -158,8 +370,13 @@ export async function handleAdminAudit(ctx: BotContext): Promise<void> {
 
 export async function handleAdminReport(ctx: BotContext): Promise<void> {
   if (!requireAdmin(ctx)) return;
-
-  await ctx.reply('⏳ Генерирую отчёт...');
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.answerCallbackQuery({ text: '⏳ Генерирую Excel-отчёт...' });
+    } catch {}
+  } else {
+    await ctx.reply('⏳ Генерирую отчёт...');
+  }
 
   let filePath: string | null = null;
   try {
@@ -182,17 +399,21 @@ export async function handleAdminCommand(ctx: BotContext): Promise<void> {
 
   const text = ctx.message?.text ?? '';
   const parts = text.trim().split(/\s+/);
-  const cmd = parts[0]?.toLowerCase();
+  const cmd = parts[0]?.split('@')[0]?.toLowerCase();
 
   try {
     switch (cmd) {
+      case '/admin':
+      case '/admin_users':
+        await handleAdminUsersList(ctx, 0);
+        break;
       case '/admin_stats':
         await handleAdminStats(ctx);
         break;
       case '/admin_user': {
         const id = Number(parts[1]);
         if (!id) { await ctx.reply('Использование: /admin_user <telegram_id>'); return; }
-        await handleAdminUser(ctx, id);
+        await handleAdminUserCard(ctx, id, 0);
         break;
       }
       case '/admin_grant': {
@@ -230,8 +451,9 @@ export async function handleAdminCommand(ctx: BotContext): Promise<void> {
       case '/admin_help':
         await ctx.reply(
           `🔑 <b>Команды администратора:</b>\n\n` +
+            `/admin — 👥 панель пользователей (просмотр, выдача/отзыв доступа)\n` +
             `/admin_stats — статистика\n` +
-            `/admin_user <id> — информация о пользователе\n` +
+            `/admin_user <id> — карточка пользователя\n` +
             `/admin_grant <id> — выдать доступ\n` +
             `/admin_revoke <id> — отозвать доступ\n` +
             `/admin_lesson <id> <день> — повторно отправить урок\n` +
@@ -242,7 +464,7 @@ export async function handleAdminCommand(ctx: BotContext): Promise<void> {
         );
         break;
       default:
-        await ctx.reply('Неизвестная команда. Используй /admin_help');
+        await ctx.reply('Неизвестная команда. Используй /admin или /admin_help');
     }
   } catch (err) {
     logger.error({ err, cmd }, 'Ошибка выполнения admin-команды');
