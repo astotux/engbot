@@ -49,9 +49,10 @@ function escapeHtml(str: string): string {
 
 function formatUserButtonLabel(user: User, hasAccess: boolean): string {
   const statusIcon = hasAccess ? '✅' : '⚪';
+  const streakIcon = user.streak_count > 0 ? ` 🔥${user.streak_count}` : '';
   const namePart = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || 'Без имени';
   const usernamePart = user.username ? ` (@${user.username})` : '';
-  const raw = `${statusIcon} ${namePart}${usernamePart} • ${user.telegram_id}`;
+  const raw = `${statusIcon}${streakIcon} ${namePart}${usernamePart} • ${user.telegram_id}`;
   return raw.length > 55 ? raw.slice(0, 52) + '...' : raw;
 }
 
@@ -163,6 +164,7 @@ export async function handleAdminUserCard(
     `🆔 <b>Telegram ID:</b> <code>${user.telegram_id}</code>\n` +
     `📛 <b>Имя:</b> ${fullName}\n` +
     `🔗 <b>Username:</b> ${usernameStr}\n` +
+    `🔥 <b>Огонек:</b> <b>${user.streak_count}</b>\n` +
     `📅 <b>Зарегистрирован:</b> ${user.registered_at}\n` +
     `🌐 <b>Язык:</b> ${user.language_code ?? '—'}  |  <b>Источник:</b> ${escapeHtml(user.source ?? '—')}\n` +
     `🔔 <b>Напоминания:</b> ${user.reminders_enabled ? 'Вкл' : 'Выкл'}\n` +
