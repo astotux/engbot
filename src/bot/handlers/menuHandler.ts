@@ -75,11 +75,6 @@ export async function handleHelp(ctx: BotContext): Promise<void> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
   const hasCourse = hasCourseAccess(telegramId);
-  const user = getUserByTelegramId(telegramId);
-  const streak = user?.streak_count || 0;
-  // Actually, HELP_TEXT doesn't seem to be formatted with formatMenuText.
-  // I should probably skip streak here if it's just HELP_TEXT, but the request was "на главной".
-  // Let's just keep it as is if it's not the main menu screen.
   await sendScreen(ctx, HELP_TEXT, {
     parse_mode: 'HTML',
     reply_markup: mainMenuKeyboard(hasCourse),
