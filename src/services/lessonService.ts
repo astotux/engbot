@@ -15,6 +15,8 @@ import {
   isDayCompleted,
 } from '../db/repositories/lessonSteps.js';
 import { getCourseAccess, updateCourseSendTime } from '../db/repositories/courseAccess.js';
+import { updateStreak } from '../db/repositories/users.js';
+import { getUserByTelegramId } from '../db/repositories/users.js';
 import { countMasteredWords, hasFlawlessQuizSession } from '../db/repositories/vocabulary.js';
 import { getMinigameProgress } from '../db/repositories/minigames.js';
 import { DIALOGUE_SCENARIOS } from '../content/minigames.js';
@@ -149,6 +151,7 @@ export function markStepDone(telegramId: number, day: number, stepIndex: number)
     completeAllSteps(telegramId, day);
     // Сохраняем в lesson_submissions для совместимости с прогресс-репозиторием
     saveSubmission(telegramId, day, 'completed', true, 100);
+    updateStreak(telegramId);
   }
 }
 
@@ -278,6 +281,7 @@ export function checkLessonWarning(telegramId: number, targetDay?: number): Less
 export function getUserProgress(telegramId: number) {
   const access = getCourseAccess(telegramId);
   if (!access) return null;
+  const user = getUserByTelegramId(telegramId);
 
   const completedDays = getCompletedDays(telegramId);
   const totalDays = 30;
@@ -297,6 +301,7 @@ export function getUserProgress(telegramId: number) {
     nextDay: currentDay,
     status: access.status,
     startedAt: access.started_at,
+    streak: user?.streak_count || 0,
   };
 }
 

@@ -929,6 +929,7 @@ export async function handleProgress(ctx: BotContext): Promise<void> {
   let progressText =
     `📊 <b>Твой прогресс</b>\n\n` +
     `${bar} ${progress.percent}%\n\n` +
+    `🔥 <b>Твой огонек: ${progress.streak}</b>\n\n` +
     `📅 Статус: ${statusMap[progress.status] ?? progress.status}\n` +
     `📖 Текущий день: ${progress.currentDay} из 30\n` +
     `✅ Пройдено уроков: ${progress.completedCount}\n` +

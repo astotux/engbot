@@ -11,6 +11,8 @@ export interface User {
   registered_at: string;
   is_blocked: number;
   reminders_enabled: number;
+  streak_count: number;
+  last_lesson_date: string | null;
 }
 
 export interface UpsertUserInput {
@@ -90,3 +92,37 @@ export function getUsersPaginated(limit: number, offset: number): User[] {
     .prepare('SELECT * FROM users ORDER BY id DESC LIMIT ? OFFSET ?')
     .all(limit, offset) as User[];
 }
+
+export function updateStreak(telegramId: number): number {
+  const db = getDb();
+  const user = getUserByTelegramId(telegramId);
+  if (!user) return 0;
+
+  const today = new Date().toISOString().split('T')[0];
+  const lastLessonDate = user.last_lesson_date;
+
+  let newStreak = 1;
+
+  if (lastLessonDate) {
+    const lastDate = new Date(lastLessonDate);
+    const todayDate = new Date(today);
+    const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 1) {
+      newStreak = user.streak_count + 1;
+    } else if (diffDays === 0) {
+      // Already did a lesson today
+      return user.streak_count;
+    } else {
+      // Reset streak
+      newStreak = 1;
+    }
+  }
+
+  db.prepare(`
+    UPDATE users SET streak_count = ?, last_lesson_date = ? WHERE telegram_id = ?
+  `).run(newStreak, today, telegramId);
+
+  return newStreak;
+}
+

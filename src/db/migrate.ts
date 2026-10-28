@@ -8,6 +8,7 @@ import { up as migration005, version as v005 } from './migrations/005_vocab_diff
 import { up as migration006, version as v006 } from './migrations/006_notifications_and_onboarding.js';
 import { up as migration007, version as v007 } from './migrations/007_features_and_games.js';
 import { up as migration008, version as v008 } from './migrations/008_lead_funnel.js';
+import { up as migration009, version as v009 } from './migrations/009_streak.js';
 import { logger } from '../utils/logger.js';
 
 const migrations = [
@@ -19,6 +20,7 @@ const migrations = [
   { version: v006, up: migration006 },
   { version: v007, up: migration007 },
   { version: v008, up: migration008 },
+  { version: v009, up: migration009 },
 ];
 
 export function runMigrations(): void {
