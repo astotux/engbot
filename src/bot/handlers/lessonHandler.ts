@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { BotContext } from '../context.js';
 import { getCourseAccess, startCourse, setCourseDay, completeCourse } from '../../db/repositories/courseAccess.js';
+import { getUserByTelegramId } from '../../db/repositories/users.js';
 import {
   getLessonForUser,
   getUserProgress,
@@ -739,6 +740,8 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   // Помечаем последний шаг
   const total = getTotalSteps(day);
   markStepDone(telegramId, day, total - 1);
+  const user = getUserByTelegramId(telegramId);
+  const streak = user?.streak_count || 0;
 
   // Проверяем, какие уроки уже открыты по расписанию (до обновления current_day!)
   const availableDays = getAvailableDays(telegramId);
@@ -758,6 +761,7 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   const isNextAvailable = nextDay <= 30 && availableDays.includes(nextDay);
 
   let doneText = `🎉 <b>Урок ${day} завершён!</b>\n\n`;
+  doneText += `🔥 <b>Твой огонек: ${streak}</b>\n\n`;
   if (day === 30 || !earliestUncompleted) {
     doneText += `🏆 <b>Поздравляем с окончанием курса!</b> Ты успешно завершил(а) все 30 дней программы.`;
   } else if (isNextAvailable) {
