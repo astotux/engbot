@@ -27,7 +27,9 @@ const {
   getAvailableDays,
   getLessonForUser,
   scheduleAllLessons,
+  checkLessonWarning,
 } = await import('../src/services/lessonService.js');
+const { up: migration010 } = await import('../src/db/migrations/010_fix_course_schedule.js');
 const {
   handleLesson,
   handleLessonDone,
@@ -243,6 +245,97 @@ describe('Первые 3 бесплатных дня курса и упомин�
     it('текст меню formatMenuText(false) упоминает 3 бесплатных дня', () => {
       const text = formatMenuText(false, 'Иван');
       expect(text).toContain('Первые 3 дня курса — совершенно бесплатно!');
+    });
+  });
+
+  describe('4. Защита от преждевременного открытия уроков наперёд и миграция 010', () => {
+    it('существующий платный пользователь: уроки не открываются наперёд при scheduleAllLessons', () => {
+      const PAID_USER = 888;
+      upsertUser({ telegram_id: PAID_USER, username: 'paid_user' });
+      // Создаём доступ 2 дня назад (сегодня должен быть открыт только День 3)
+      const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+      testDb.prepare(`
+        INSERT INTO course_access (telegram_id, product_id, status, started_at, current_day, start_day, send_hour, send_minute)
+        VALUES (?, 'english_30_days', 'active', ?, 3, 1, 0, 1)
+      `).run(PAID_USER, twoDaysAgo);
+
+      // Пользователь сдал Урок 1 и Урок 2
+      saveSubmission(PAID_USER, 1, 'completed', true, 100);
+      saveSubmission(PAID_USER, 2, 'completed', true, 100);
+
+      // Запускаем планирование (как при старте бота)
+      scheduleAllLessons(PAID_USER, true);
+
+      // Доступны должны быть только Дни 1, 2, 3
+      const available = getAvailableDays(PAID_USER);
+      expect(available).toEqual([1, 2, 3]);
+
+      // Будущий урок 4 запланирован на будущее (не доступен)
+      const d4 = getLessonDelivery(PAID_USER, 4);
+      expect(d4).toBeTruthy();
+      expect(d4?.status).toBe('pending');
+      expect(new Date(d4!.scheduled_at).getTime()).toBeGreaterThan(Date.now());
+
+      // Урок 5 также строго в будущем
+      const d5 = getLessonDelivery(PAID_USER, 5);
+      expect(d5).toBeTruthy();
+      expect(d5?.status).toBe('pending');
+      expect(new Date(d5!.scheduled_at).getTime()).toBeGreaterThan(Date.now() + 86_400_000);
+
+      // Предупреждение о забегании вперёд НЕ возникает
+      const warning = checkLessonWarning(PAID_USER);
+      expect(warning.upcomingDays).toEqual([]);
+    });
+
+    it('миграция 010 восстанавливает корректное расписание и сбрасывает ошибочно открытые наперёд уроки', () => {
+      const CORRUPTED_USER = 999;
+      upsertUser({ telegram_id: CORRUPTED_USER, username: 'corrupted_user' });
+      const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+
+      // Симулируем испорченное состояние БД: current_day=8, уроки 4..8 ошибочно помечены 'sent'
+      testDb.prepare(`
+        INSERT INTO course_access (telegram_id, product_id, status, started_at, current_day, send_hour, send_minute)
+        VALUES (?, 'english_30_days', 'active', ?, 8, 0, 1)
+      `).run(CORRUPTED_USER, twoDaysAgo);
+
+      saveSubmission(CORRUPTED_USER, 1, 'completed', true, 100);
+      saveSubmission(CORRUPTED_USER, 2, 'completed', true, 100);
+
+      // Добавляем ошибочные 'sent' записи для будущих дней 4, 5, 6, 7, 8
+      for (let day = 1; day <= 8; day++) {
+        testDb.prepare(`
+          INSERT INTO lesson_deliveries (telegram_id, day_number, scheduled_at, status, sent_at)
+          VALUES (?, ?, datetime('now'), 'sent', datetime('now'))
+        `).run(CORRUPTED_USER, day);
+      }
+
+      // До миграции пользователю ошибочно открыты уроки 1..8
+      expect(getAvailableDays(CORRUPTED_USER).length).toBe(8);
+
+      // Применяем восстанавливающую миграцию 010
+      migration010(testDb);
+
+      // После миграции:
+      // current_day должен стать 3 (так как прошло 2 дня со started_at)
+      const access = testDb.prepare('SELECT * FROM course_access WHERE telegram_id = ?').get(CORRUPTED_USER) as any;
+      expect(access.current_day).toBe(3);
+      expect(access.start_day).toBe(1);
+
+      // Дни 4..8 должны стать 'pending' с будущим временем scheduled_at и sent_at = NULL
+      for (let day = 4; day <= 8; day++) {
+        const d = getLessonDelivery(CORRUPTED_USER, day);
+        expect(d?.status).toBe('pending');
+        expect(d?.sent_at).toBeNull();
+        expect(new Date(d!.scheduled_at).getTime()).toBeGreaterThan(Date.now());
+      }
+
+      // Доступны только реально наступившие уроки: 1, 2, 3
+      const correctedAvailable = getAvailableDays(CORRUPTED_USER);
+      expect(correctedAvailable).toEqual([1, 2, 3]);
+
+      // Уроки наперёд не открыты
+      const warning = checkLessonWarning(CORRUPTED_USER);
+      expect(warning.upcomingDays).toEqual([]);
     });
   });
 });

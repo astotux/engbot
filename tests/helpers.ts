@@ -8,6 +8,7 @@ import { up as migration006, version as v006 } from '../src/db/migrations/006_no
 import { up as migration007, version as v007 } from '../src/db/migrations/007_features_and_games.js';
 import { up as migration008, version as v008 } from '../src/db/migrations/008_lead_funnel.js';
 import { up as migration009, version as v009 } from '../src/db/migrations/009_streak.js';
+import { up as migration010, version as v010 } from '../src/db/migrations/010_fix_course_schedule.js';
 
 /** Создаёт временную in-memory SQLite базу для тестов */
 export function createTestDb(): Database.Database {
@@ -48,6 +49,9 @@ export function createTestDb(): Database.Database {
 
   migration009(db);
   db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(v009);
+
+  migration010(db);
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(v010);
 
   return db;
 }

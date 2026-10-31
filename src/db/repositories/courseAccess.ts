@@ -9,6 +9,7 @@ export interface CourseAccess {
   purchased_at: string;
   started_at: string | null;
   current_day: number;
+  start_day: number;
   status: 'pending' | 'active' | 'completed' | 'paused' | 'revoked';
   completed_at: string | null;
   send_hour: number | null;
@@ -47,10 +48,10 @@ export function createCourseAccess(
       const nextDay = Math.max(existing.current_day, initialDay);
       db.prepare(`
         UPDATE course_access
-        SET status = 'active', started_at = datetime('now'), current_day = ?,
+        SET status = 'active', started_at = datetime('now'), current_day = ?, start_day = ?,
             send_hour = ?, send_minute = ?, order_id = COALESCE(?, order_id)
         WHERE id = ?
-      `).run(nextDay, config.lessonSendHour, config.lessonSendMinute, orderId, existing.id);
+      `).run(nextDay, nextDay, config.lessonSendHour, config.lessonSendMinute, orderId, existing.id);
       return getCourseAccess(telegramId) ?? null;
     }
     return null;
@@ -58,15 +59,16 @@ export function createCourseAccess(
 
   const startedAt = status === 'active' ? new Date().toISOString() : null;
   const currentDay = status === 'active' ? initialDay : 0;
+  const startDay = status === 'active' ? initialDay : 1;
   const sendHour = status === 'active' ? config.lessonSendHour : null;
   const sendMinute = status === 'active' ? config.lessonSendMinute : null;
 
   db.prepare(`
     INSERT OR IGNORE INTO course_access (
-      telegram_id, product_id, order_id, status, started_at, current_day, send_hour, send_minute
+      telegram_id, product_id, order_id, status, started_at, current_day, start_day, send_hour, send_minute
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(telegramId, PRODUCT, orderId, status, startedAt, currentDay, sendHour, sendMinute);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(telegramId, PRODUCT, orderId, status, startedAt, currentDay, startDay, sendHour, sendMinute);
 
   return db
     .prepare('SELECT * FROM course_access WHERE telegram_id = ? AND product_id = ?')
@@ -85,13 +87,23 @@ export function getCourseAccess(telegramId: number): CourseAccess | undefined {
 }
 
 export function startCourse(telegramId: number): void {
-  getDb()
-    .prepare(`
-      UPDATE course_access
-      SET status = 'active', started_at = datetime('now'), current_day = 1, send_hour = ?, send_minute = ?
-      WHERE telegram_id = ? AND product_id = ? AND status = 'pending'
-    `)
-    .run(config.lessonSendHour, config.lessonSendMinute, telegramId, PRODUCT);
+  const db = getDb();
+  let initialDay = 1;
+  try {
+    const completed = db
+      .prepare('SELECT DISTINCT day_number FROM lesson_submissions WHERE telegram_id = ? AND is_correct = 1')
+      .all(telegramId) as Array<{ day_number: number }>;
+    const completedDays = new Set(completed.map((r) => r.day_number));
+    while (completedDays.has(initialDay) && initialDay < 30) {
+      initialDay++;
+    }
+  } catch {}
+
+  db.prepare(`
+    UPDATE course_access
+    SET status = 'active', started_at = datetime('now'), current_day = ?, start_day = ?, send_hour = ?, send_minute = ?
+    WHERE telegram_id = ? AND product_id = ? AND status = 'pending'
+  `).run(initialDay, initialDay, config.lessonSendHour, config.lessonSendMinute, telegramId, PRODUCT);
 }
 
 export function advanceCourseDay(telegramId: number): void {

@@ -35,7 +35,7 @@ export function scheduleAllLessons(telegramId: number, forceUpdatePending = fals
 
   const startDate = parseSqliteUtcDate(access.started_at);
   const tz = config.courseTimezone;
-  const startDay = Math.max(1, access.current_day);
+  const startDay = access.start_day ?? 1;
 
   // Для ранее завершённых дней фиксируем отправку
   for (let day = 1; day < startDay; day++) {
@@ -43,7 +43,7 @@ export function scheduleAllLessons(telegramId: number, forceUpdatePending = fals
     markLessonSent(telegramId, day);
   }
 
-  // startDay (текущий урок, например День 4 или День 1) открывается сразу при старте/покупке
+  // startDay (первый оплаченный урок, например День 4 или День 1) открывается сразу при старте/покупке
   // Все последующие уроки (startDay + 1 .. 30) открываются строго в 00:01 МСК каждого следующего дня
   for (let day = startDay; day <= 30; day++) {
     const daysOffset = day - startDay;
