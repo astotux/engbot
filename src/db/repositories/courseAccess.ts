@@ -31,21 +31,33 @@ export function createCourseAccess(
     )
     .get(telegramId, PRODUCT) as CourseAccess | undefined;
 
+  let initialDay = 1;
+  try {
+    const completed = db
+      .prepare('SELECT DISTINCT day_number FROM lesson_submissions WHERE telegram_id = ? AND is_correct = 1')
+      .all(telegramId) as Array<{ day_number: number }>;
+    const completedDays = new Set(completed.map((r) => r.day_number));
+    while (completedDays.has(initialDay) && initialDay < 30) {
+      initialDay++;
+    }
+  } catch {}
+
   if (existing) {
     if (existing.status === 'pending' && status === 'active') {
+      const nextDay = Math.max(existing.current_day, initialDay);
       db.prepare(`
         UPDATE course_access
-        SET status = 'active', started_at = datetime('now'), current_day = 1,
+        SET status = 'active', started_at = datetime('now'), current_day = ?,
             send_hour = ?, send_minute = ?, order_id = COALESCE(?, order_id)
         WHERE id = ?
-      `).run(config.lessonSendHour, config.lessonSendMinute, orderId, existing.id);
+      `).run(nextDay, config.lessonSendHour, config.lessonSendMinute, orderId, existing.id);
       return getCourseAccess(telegramId) ?? null;
     }
     return null;
   }
 
   const startedAt = status === 'active' ? new Date().toISOString() : null;
-  const currentDay = status === 'active' ? 1 : 0;
+  const currentDay = status === 'active' ? initialDay : 0;
   const sendHour = status === 'active' ? config.lessonSendHour : null;
   const sendMinute = status === 'active' ? config.lessonSendMinute : null;
 

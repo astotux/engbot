@@ -168,16 +168,28 @@ export async function handleCheckPayment(ctx: BotContext, explicitPaymentId?: st
     if (result.isPaid) {
       markPendingCourseGrantProcessedForUser(telegramId);
       await ctx.answerCallbackQuery('🎉 Оплата подтверждена!');
+
+      const access = getCourseAccess(telegramId);
+      const currentDay = access?.current_day && access.current_day > 1 ? access.current_day : 1;
+      const isContinuing = currentDay > 1;
+
       await editScreen(
         ctx,
         `🎉 <b>Оплата подтверждена!</b>\n\n` +
           `Добро пожаловать на курс «Английский за 30 дней»!\n\n` +
-          `Доступ ко всем материалам открыт. Первый урок уже ждёт тебя 👇`,
+          (isContinuing
+            ? `Ты успешно завершил(а) вводную часть курса. Доступ ко всем 30 урокам, мини-играм и тренажёрам открыт!\n\n<b>Урок ${currentDay}</b> уже ждёт тебя 👇`
+            : `Доступ ко всем материалам открыт. Первый урок уже ждёт тебя 👇`),
         {
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🚀 Начать обучение (Урок 1)', callback_data: 'my_lesson' }],
+              [
+                {
+                  text: isContinuing ? `🚀 Продолжить обучение (Урок ${currentDay})` : '🚀 Начать обучение (Урок 1)',
+                  callback_data: 'my_lesson',
+                },
+              ],
               [{ text: '🏠 В главное меню', callback_data: 'main_menu' }],
             ],
           },
@@ -268,14 +280,25 @@ export async function sendCourseAccessMessage(
   telegramId: number,
   explicitMessageId?: number,
 ): Promise<void> {
+  const access = getCourseAccess(telegramId);
+  const currentDay = access?.current_day && access.current_day > 1 ? access.current_day : 1;
+  const isContinuing = currentDay > 1;
+
   const text =
     `🎉 <b>Оплата подтверждена!</b>\n\n` +
     `Добро пожаловать на курс «Английский за 30 дней»!\n\n` +
-    `Доступ ко всем материалам открыт. Первый урок уже ждёт тебя 👇`;
+    (isContinuing
+      ? `Ты успешно завершил(а) вводную часть курса. Доступ ко всем 30 урокам, мини-играм и тренажёрам открыт!\n\n<b>Урок ${currentDay}</b> уже ждёт тебя 👇`
+      : `Доступ ко всем материалам открыт. Первый урок уже ждёт тебя 👇`);
 
   const replyMarkup = {
     inline_keyboard: [
-      [{ text: '🚀 Начать обучение (Урок 1)', callback_data: 'my_lesson' }],
+      [
+        {
+          text: isContinuing ? `🚀 Продолжить обучение (Урок ${currentDay})` : '🚀 Начать обучение (Урок 1)',
+          callback_data: 'my_lesson',
+        },
+      ],
       [{ text: '🏠 В главное меню', callback_data: 'main_menu' }],
     ],
   };

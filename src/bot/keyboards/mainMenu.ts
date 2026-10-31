@@ -17,7 +17,8 @@ export function mainMenuKeyboard(hasCourse = false): InlineKeyboard {
       .text('💬 Поддержка', 'support');
   } else {
     // Новый пользователь / гость
-    kb.text('✨ Получить курс', 'buy_course').row();
+    kb.text('📖 Урок дня (1–3 дни бесплатно)', 'my_lesson').row();
+    kb.text('✨ Получить полный курс', 'buy_course').row();
     kb.text('🎁 Бесплатный чек-лист', 'show_checklist')
       .text('📂 Мои конспекты', 'my_notes')
       .row();
@@ -44,6 +45,8 @@ export function supportKeyboard(): InlineKeyboard {
 
 export function courseInfoKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text('🚀 Начать 3 бесплатных дня', 'my_lesson')
+    .row()
     .text('💳 Купить курс', 'buy_course')
     .row()
     .text('🎁 Бесплатный чек-лист', 'show_checklist')
@@ -77,6 +80,8 @@ export function cancelKeyboard(): InlineKeyboard {
 
 export function checklistKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text('🚀 Начать 1-й урок (бесплатно)', 'my_lesson')
+    .row()
     .text('✨ Получить полный курс', 'buy_course')
     .row()
     .text('🎮 Мини-игры', 'games:menu')

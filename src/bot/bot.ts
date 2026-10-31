@@ -209,6 +209,12 @@ export function createBot(): Bot<BotContext> {
   bot.callbackQuery(/^start_required_lesson:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const day = Number(ctx.match[1]);
+    const telegramId = ctx.from?.id;
+    const access = telegramId ? getCourseAccess(telegramId) : undefined;
+    if (!access && day > 3) {
+      await handleLesson(ctx, day);
+      return;
+    }
     await handleStartLessonDirectly(ctx, day);
   });
   bot.callbackQuery('my_progress', handleProgress);
@@ -358,8 +364,8 @@ export function createBot(): Bot<BotContext> {
     if (!telegramId) return;
     const access = getCourseAccess(telegramId);
     const available = getAvailableDays(telegramId);
-    if (!access || !available.includes(day)) {
-      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
+    if (!available.includes(day)) {
+      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(!!access) });
       return;
     }
     const { getLessonByDay } = await import('../content/course.js');
@@ -381,8 +387,8 @@ export function createBot(): Bot<BotContext> {
     const day = Number(ctx.match[1]);
     const access = getCourseAccess(telegramId);
     const available = getAvailableDays(telegramId);
-    if (!access || !available.includes(day)) {
-      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(true) });
+    if (!available.includes(day)) {
+      await sendScreen(ctx, 'Этот урок ещё не доступен.', { reply_markup: mainMenuKeyboard(!!access) });
       return;
     }
     if (isDayCompleted(telegramId, day)) {

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { BotContext } from '../context.js';
 import { getCourseAccess, startCourse, setCourseDay, completeCourse } from '../../db/repositories/courseAccess.js';
-import { getUserByTelegramId } from '../../db/repositories/users.js';
+import { getUserByTelegramId, updateStreak } from '../../db/repositories/users.js';
 import {
   getLessonForUser,
   getUserProgress,
@@ -18,8 +18,8 @@ import {
   getEarliestUncompletedDay,
   type LessonWarningInfo,
 } from '../../services/lessonService.js';
-import { getStepProgress } from '../../db/repositories/lessonSteps.js';
-import { getLessonNotification, clearLessonNotification } from '../../db/repositories/lessons.js';
+import { getStepProgress, advanceStep, completeAllSteps } from '../../db/repositories/lessonSteps.js';
+import { getLessonNotification, clearLessonNotification, getCompletedDays, saveSubmission } from '../../db/repositories/lessons.js';
 import {
   getLessonByDay,
   getStep,
@@ -43,6 +43,7 @@ import {
   setLastScreenMessageId,
 } from '../sendHelper.js';
 import { logger } from '../../utils/logger.js';
+import { config } from '../../config/index.js';
 
 // ─── Форматирование шагов ─────────────────────────────────────────────────────
 
@@ -568,20 +569,7 @@ export async function handleLesson(ctx: BotContext, targetDay?: number): Promise
   }
 
   const access = getCourseAccess(telegramId);
-  if (!access) {
-    await sendScreen(
-      ctx,
-      '📚 У тебя пока нет доступа к курсу.\n\nВыбери нужный раздел:',
-      { reply_markup: mainMenuKeyboard(false) },
-    );
-    return;
-  }
-  if (access.status === 'pending') {
-    // Если курс оплачен, но ещё не стартован — автоматически активируем и планируем уроки
-    startCourse(telegramId);
-    scheduleAllLessons(telegramId);
-  }
-  if (access.status === 'revoked') {
+  if (access && access.status === 'revoked') {
     await sendScreen(
       ctx,
       '❌ Доступ отозван. Напиши в поддержку: @adm_koval.',
@@ -589,13 +577,55 @@ export async function handleLesson(ctx: BotContext, targetDay?: number): Promise
     );
     return;
   }
-  if (access.paused) {
+  if (access && access.paused) {
     await sendScreen(
       ctx,
       '⏸ Обучение приостановлено.',
       { reply_markup: mainMenuKeyboard(true) },
     );
     return;
+  }
+  if (access && access.status === 'pending') {
+    // Если курс оплачен, но ещё не стартован — автоматически активируем и планируем уроки
+    startCourse(telegramId);
+    scheduleAllLessons(telegramId);
+  }
+
+  // Для пользователей без купленного курса (первые 3 дня курса бесплатны)
+  if (!access) {
+    const earliestUncompleted = getEarliestUncompletedDay(telegramId);
+    if (earliestUncompleted !== null && earliestUncompleted > 3) {
+      await sendScreen(
+        ctx,
+        `🔒 <b>Первые 3 бесплатных дня курса завершены!</b>\n\n` +
+          `Ты успешно прошёл(ла) все вводные уроки (Дни 1–3) 🎉\n\n` +
+          `Чтобы продолжить обучение с <b>Урока 4</b> и открыть доступ ко всем 30 дням программы, мини-играм, словарному тренажёру и конспектам, оформи полный доступ к курсу 👇`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: new InlineKeyboard()
+            .text(`💳 Получить полный курс`, 'buy_course').row()
+            .text('📂 Мои конспекты', 'my_notes').row()
+            .text('🏠 В главное меню', 'main_menu'),
+        },
+      );
+      return;
+    }
+
+    if (targetDay !== undefined && targetDay > 3) {
+      await sendScreen(
+        ctx,
+        `🔒 <b>Урок ${targetDay} доступен в полной версии курса!</b>\n\n` +
+          `В бесплатный доступ входят первые 3 дня обучения (Дни 1–3).\n\n` +
+          `Оформи полный доступ, чтобы открыть все 30 уроков 👇`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: new InlineKeyboard()
+            .text(`💳 Получить полный курс`, 'buy_course').row()
+            .text('🏠 В главное меню', 'main_menu'),
+        },
+      );
+      return;
+    }
   }
 
   // Проверяем, нужно ли показать предупреждение о незавершённом предыдущем уроке
@@ -615,20 +645,32 @@ export async function handleLesson(ctx: BotContext, targetDay?: number): Promise
     return;
   }
 
-  const dayToOpen = targetDay ?? warningInfo.currentRequiredDay ?? access.current_day;
+  const dayToOpen = targetDay ?? warningInfo.currentRequiredDay ?? (access ? access.current_day : 1);
   const lesson = getLessonForUser(telegramId, dayToOpen);
   if (!lesson) {
-    if (access.status === 'completed' || warningInfo.currentRequiredDay === null) {
+    if (access?.status === 'completed' || warningInfo.currentRequiredDay === null) {
       await sendScreen(
         ctx,
         '🎉 Ты завершил(а) весь курс! Посмотри свой прогресс ниже.',
         { reply_markup: mainMenuKeyboard(true) },
       );
+    } else if (!access && dayToOpen > 3) {
+      await sendScreen(
+        ctx,
+        `🔒 <b>Урок ${dayToOpen} доступен в полной версии курса!</b>\n\n` +
+          `Первые 3 дня курса бесплатны. Оформи полный доступ, чтобы продолжить обучение 👇`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: new InlineKeyboard()
+            .text(`💳 Получить полный курс`, 'buy_course').row()
+            .text('🏠 В главное меню', 'main_menu'),
+        },
+      );
     } else {
       await sendScreen(
         ctx,
         '📭 Урок ещё не готов — приходи завтра!',
-        { reply_markup: mainMenuKeyboard(true) },
+        { reply_markup: mainMenuKeyboard(!!access) },
       );
     }
     return;
@@ -734,12 +776,14 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   }
 
   const access = getCourseAccess(telegramId);
-  if (!access) return;
-  const day = explicitDay ?? access.current_day;
+  const day = explicitDay ?? access?.current_day ?? 1;
 
-  // Помечаем последний шаг
+  // Помечаем урок как завершённый
   const total = getTotalSteps(day);
-  markStepDone(telegramId, day, total - 1);
+  advanceStep(telegramId, day, total - 1);
+  completeAllSteps(telegramId, day);
+  saveSubmission(telegramId, day, 'completed', true, 100);
+  updateStreak(telegramId);
   const user = getUserByTelegramId(telegramId);
   const streak = user?.streak_count || 0;
 
@@ -748,12 +792,14 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
 
   // Обновляем прогресс в базе только если следующий незавершённый урок уже открыт по расписанию
   const earliestUncompleted = getEarliestUncompletedDay(telegramId);
-  if (earliestUncompleted) {
-    if (earliestUncompleted > access.current_day && availableDays.includes(earliestUncompleted)) {
-      setCourseDay(telegramId, earliestUncompleted);
+  if (access) {
+    if (earliestUncompleted) {
+      if (earliestUncompleted > access.current_day && availableDays.includes(earliestUncompleted)) {
+        setCourseDay(telegramId, earliestUncompleted);
+      }
+    } else {
+      completeCourse(telegramId);
     }
-  } else {
-    completeCourse(telegramId);
   }
 
   // Проверяем, доступен ли уже следующий урок
@@ -762,8 +808,21 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
 
   let doneText = `🎉 <b>Урок ${day} завершён!</b>\n\n`;
   doneText += `🔥 <b>Твой огонек: ${streak}</b>\n\n`;
-  if (day === 30 || !earliestUncompleted) {
-    doneText += `🏆 <b>Поздравляем с окончанием курса!</b> Ты успешно завершил(а) все 30 дней программы.`;
+  if (day === 30 || (!access && day >= 3) || (access && !earliestUncompleted)) {
+    if (!access && day >= 3) {
+      doneText +=
+        `👏 <b>Поздравляем! Ты успешно завершил(а) первые 3 бесплатных дня курса!</b>\n\n` +
+        `Ты освоил(а) алфавит, ключевые правила чтения, местоимения и построение базовых предложений с глаголом <i>to be</i>.\n\n` +
+        `🚀 <b>Хочешь продолжить обучение и заговорить свободно?</b>\n` +
+        `В полной версии курса тебя ждут:\n` +
+        `• 27 уроков (Дни 4–30): разговорные темы, времена глаголов, предлоги, отрицания и вопросы\n` +
+        `• Голосовые аудио и видео-кружки с произношением\n` +
+        `• Все мини-игры в подарок: 500+ слов (A1–C2), конструктор фраз и симулятор диалогов 🎮\n` +
+        `• Конспекты ко всем 30 урокам\n\n` +
+        `💳 <b>Стоимость полного курса: всего ${config.coursePriceRub} ₽</b>`;
+    } else {
+      doneText += `🏆 <b>Поздравляем с окончанием курса!</b> Ты успешно завершил(а) все 30 дней программы.`;
+    }
   } else if (isNextAvailable) {
     const nextLesson = getLessonByDay(nextDay);
     const nextTitle = nextLesson ? `: ${nextLesson.title}` : '';
@@ -779,7 +838,10 @@ export async function handleLessonDone(ctx: BotContext, explicitDay?: number): P
   const pdfPath = lesson?.pdfFile ? path.resolve(lesson.pdfFile) : null;
 
   const doneKb = new InlineKeyboard();
-  if (isNextAvailable && nextDay <= 30) {
+  if (!access && day >= 3) {
+    doneKb.text(`💳 Получить полный курс`, 'buy_course').row();
+    doneKb.text('📂 Мои конспекты', 'my_notes').row();
+  } else if (isNextAvailable && nextDay <= 30) {
     doneKb.text(`🚀 Перейти к уроку ${nextDay}`, `start_required_lesson:${nextDay}`).row();
   }
   doneKb.text('🏠 В главное меню', 'main_menu');
@@ -912,9 +974,36 @@ export async function handleProgress(ctx: BotContext): Promise<void> {
   const achievementsText = formatAchievementsSection(telegramId);
 
   if (!progress) {
+    const completedDays = getCompletedDays(telegramId);
+    if (completedDays.length > 0) {
+      const user = getUserByTelegramId(telegramId);
+      const streak = user?.streak_count || 0;
+      let freeProgressText =
+        `📊 <b>Твой прогресс (Бесплатный период)</b>\n\n` +
+        `🔥 <b>Твой огонек: ${streak}</b>\n\n` +
+        `📅 Статус: 🎁 Первые 3 дня (бесплатно)\n` +
+        `✅ Пройдено бесплатных уроков: ${completedDays.length} из 3\n`;
+      if (completedDays.length >= 3) {
+        freeProgressText += `\n🎉 <i>Все 3 бесплатных урока пройдены! Оформи полный курс, чтобы продолжить с 4-го дня.</i>\n`;
+      }
+      freeProgressText += achievementsText;
+      await sendScreen(
+        ctx,
+        freeProgressText,
+        {
+          parse_mode: 'HTML',
+          reply_markup: new InlineKeyboard()
+            .text(`💳 Получить полный курс`, 'buy_course').row()
+            .text('📖 Урок дня', 'my_lesson').row()
+            .text('🏠 В главное меню', 'main_menu'),
+        },
+      );
+      return;
+    }
+
     await sendScreen(
       ctx,
-      `📊 <b>Твой прогресс</b>\n\nТы ещё не начал(а) курс.\n${achievementsText}\nВыбери нужный раздел:`,
+      `📊 <b>Твой прогресс</b>\n\nТы ещё не начал(а) курс. Первые 3 дня курса доступны бесплатно!\n${achievementsText}\nВыбери нужный раздел:`,
       { parse_mode: 'HTML', reply_markup: mainMenuKeyboard(false) },
     );
     return;

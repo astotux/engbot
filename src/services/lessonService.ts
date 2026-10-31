@@ -5,6 +5,7 @@ import {
   updatePendingLessonDelivery,
   saveSubmission,
   getCompletedDays,
+  markLessonSent,
 } from '../db/repositories/lessons.js';
 import {
   getStepProgress,
@@ -34,11 +35,20 @@ export function scheduleAllLessons(telegramId: number, forceUpdatePending = fals
 
   const startDate = parseSqliteUtcDate(access.started_at);
   const tz = config.courseTimezone;
+  const startDay = Math.max(1, access.current_day);
 
-  // День 1 открывается сразу при старте, а все следующие уроки (2..30) — в 00:01 МСК следующего дня
-  for (let day = 1; day <= 30; day++) {
-    const d = new Date(startDate.getTime() + (day - 1) * 86_400_000);
-    const scheduled = day === 1 ? startDate : toZonedScheduledTime(d, 0, 1, tz);
+  // Для ранее завершённых дней фиксируем отправку
+  for (let day = 1; day < startDay; day++) {
+    scheduleLessonDelivery(telegramId, day, startDate.toISOString());
+    markLessonSent(telegramId, day);
+  }
+
+  // startDay (текущий урок, например День 4 или День 1) открывается сразу при старте/покупке
+  // Все последующие уроки (startDay + 1 .. 30) открываются строго в 00:01 МСК каждого следующего дня
+  for (let day = startDay; day <= 30; day++) {
+    const daysOffset = day - startDay;
+    const d = new Date(startDate.getTime() + daysOffset * 86_400_000);
+    const scheduled = daysOffset === 0 ? startDate : toZonedScheduledTime(d, 0, 1, tz);
     if (forceUpdatePending) {
       updatePendingLessonDelivery(telegramId, day, scheduled.toISOString());
     } else {
@@ -167,44 +177,66 @@ export function isStepDone(telegramId: number, day: number, stepIndex: number): 
  */
 export function getAvailableDays(telegramId: number): number[] {
   const access = getCourseAccess(telegramId);
-  if (!access || access.status === 'revoked') return [];
+  if (access && access.status === 'revoked') return [];
 
   const daysSet = new Set<number>();
 
-  // Если курс активен или завершён, День 1 всегда доступен
-  if (access.status === 'active' || access.status === 'completed') {
-    daysSet.add(1);
-  }
-
-  // Все когда-либо пройденные дни
-  for (const day of getCompletedDays(telegramId)) {
-    daysSet.add(day);
-  }
-
-  // Все дни из lesson_deliveries, которые уже отправлены или наступили по расписанию
-  try {
-    const deliveries = getDb()
-      .prepare(`
-        SELECT day_number FROM lesson_deliveries
-        WHERE telegram_id = ? AND (status = 'sent' OR datetime(scheduled_at) <= datetime('now'))
-      `)
-      .all(telegramId) as Array<{ day_number: number }>;
-    for (const d of deliveries) {
-      daysSet.add(d.day_number);
+  if (access) {
+    // Если курс активен или завершён, День 1 всегда доступен
+    if (access.status === 'active' || access.status === 'completed') {
+      daysSet.add(1);
     }
-  } catch {
-    // Таблица может отсутствовать в отдельных юнит-тестах
+
+    // Все когда-либо пройденные дни
+    for (const day of getCompletedDays(telegramId)) {
+      daysSet.add(day);
+    }
+
+    // Все дни из lesson_deliveries, которые уже отправлены или наступили по расписанию
+    try {
+      const deliveries = getDb()
+        .prepare(`
+          SELECT day_number FROM lesson_deliveries
+          WHERE telegram_id = ? AND (status = 'sent' OR datetime(scheduled_at) <= datetime('now'))
+        `)
+        .all(telegramId) as Array<{ day_number: number }>;
+      for (const d of deliveries) {
+        daysSet.add(d.day_number);
+      }
+    } catch {
+      // Таблица может отсутствовать в отдельных юнит-тестах
+    }
+
+    // Если в course_access зафиксирован current_day, все дни до него также считаем доступными
+    if (access.current_day > 0) {
+      for (let d = 1; d <= access.current_day; d++) {
+        daysSet.add(d);
+      }
+    }
+
+    return Array.from(daysSet)
+      .filter((d) => d >= 1 && d <= 30)
+      .sort((a, b) => a - b);
   }
 
-  // Если в course_access зафиксирован current_day, все дни до него также считаем доступными
-  if (access.current_day > 0) {
-    for (let d = 1; d <= access.current_day; d++) {
-      daysSet.add(d);
-    }
+  // Для пользователей без купленного курса первые 3 дня курса бесплатны (1..3)
+  daysSet.add(1);
+
+  const completed = getCompletedDays(telegramId);
+  for (const day of completed) {
+    if (day <= 3) daysSet.add(day);
+  }
+
+  // Если День 1 завершён, открывается День 2. Если День 2 завершён — День 3.
+  if (completed.includes(1)) {
+    daysSet.add(2);
+  }
+  if (completed.includes(2)) {
+    daysSet.add(3);
   }
 
   return Array.from(daysSet)
-    .filter((d) => d >= 1 && d <= 30)
+    .filter((d) => d >= 1 && d <= 3)
     .sort((a, b) => a - b);
 }
 
@@ -307,10 +339,20 @@ export function getUserProgress(telegramId: number) {
 
 export function getLessonForUser(telegramId: number, day?: number): Lesson | undefined {
   const access = getCourseAccess(telegramId);
-  if (!access || (access.status !== 'active' && access.status !== 'completed')) return undefined;
+  if (access && access.status === 'revoked') return undefined;
+
+  const isPaid = !!access && (access.status === 'active' || access.status === 'completed');
   const earliestUncompleted = getEarliestUncompletedDay(telegramId);
-  const requestedDay = day ?? earliestUncompleted ?? access.current_day;
+  const requestedDay = day ?? earliestUncompleted ?? (access ? access.current_day : 1);
   const availableDays = getAvailableDays(telegramId);
+
+  // Для бесплатного доступа разрешены только уроки 1..3
+  if (!isPaid) {
+    if (requestedDay > 3) return undefined;
+    if (!availableDays.includes(requestedDay)) return undefined;
+    return getLessonByDay(requestedDay);
+  }
+
   if (!availableDays.includes(requestedDay) && requestedDay > access.current_day) return undefined;
   return getLessonByDay(requestedDay);
 }
